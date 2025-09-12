@@ -1,0 +1,133 @@
+#include "../include/Block.h"
+#include "../include/utils.h"
+#include <sstream>
+#include <iostream>
+#include <chrono>
+
+Block::Block(int idx, const std::string& prevHash) 
+    : index(idx), timestamp(utils::getCurrentTimestamp()), previousHash(prevHash), nonce(0) {
+    hash = "";
+    merkleRoot = "";
+    calculateMerkleRoot();
+}
+
+void Block::addTransaction(std::shared_ptr<Transaction> transaction) {
+    if (transaction && transaction->isValid()) {
+        transactions.push_back(transaction);
+        calculateMerkleRoot(); // Recalculate merkle root after adding transaction
+    }
+}
+
+std::string Block::calculateHash() const {
+    std::stringstream ss;
+    ss << index << timestamp << previousHash << merkleRoot << nonce;
+    
+    // Include all transaction hashes
+    for (const auto& transaction : transactions) {
+        ss << transaction->calculateHash();
+    }
+    
+    return utils::sha256(ss.str());
+}
+
+void Block::mineBlock(int difficulty) {
+    std::cout << "Mining block " << index << "..." << std::endl;
+    
+    std::string target(difficulty, '0');
+    nonce = 0;
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    do {
+        nonce++;
+        hash = calculateHash();
+        
+        // Print progress every 100000 attempts
+        if (nonce % 100000 == 0) {
+            std::cout << "Nonce: " << nonce << ", Hash: " << hash.substr(0, 20) << "..." << std::endl;
+        }
+        
+    } while (hash.substr(0, difficulty) != target);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    std::cout << "Block mined successfully!" << std::endl;
+    std::cout << "Hash: " << hash << std::endl;
+    std::cout << "Nonce: " << nonce << std::endl;
+    std::cout << "Mining time: " << duration.count() << " ms" << std::endl;
+    std::cout << std::endl;
+}
+
+void Block::calculateMerkleRoot() {
+    if (transactions.empty()) {
+        merkleRoot = utils::sha256("");
+        return;
+    }
+    
+    std::vector<std::string> transactionHashes;
+    for (const auto& transaction : transactions) {
+        transactionHashes.push_back(transaction->calculateHash());
+    }
+    
+    merkleRoot = utils::calculateMerkleRoot(transactionHashes);
+}
+
+bool Block::isValid(int difficulty) const {
+    // Check if hash is correctly calculated
+    if (hash != calculateHash()) {
+        std::cout << "Invalid block: Hash mismatch" << std::endl;
+        return false;
+    }
+    
+    // Check proof of work
+    if (!utils::checkProofOfWork(hash, difficulty)) {
+        std::cout << "Invalid block: Proof of work not satisfied" << std::endl;
+        return false;
+    }
+    
+    // Validate all transactions
+    for (const auto& transaction : transactions) {
+        if (!transaction->isValid()) {
+            std::cout << "Invalid block: Contains invalid transaction" << std::endl;
+            return false;
+        }
+    }
+    
+    // Verify merkle root
+    std::vector<std::string> transactionHashes;
+    for (const auto& transaction : transactions) {
+        transactionHashes.push_back(transaction->calculateHash());
+    }
+    
+    std::string calculatedMerkleRoot = utils::calculateMerkleRoot(transactionHashes);
+    if (merkleRoot != calculatedMerkleRoot) {
+        std::cout << "Invalid block: Merkle root mismatch" << std::endl;
+        return false;
+    }
+    
+    return true;
+}
+
+bool Block::isMined(int difficulty) const {
+    return utils::checkProofOfWork(hash, difficulty);
+}
+
+std::string Block::toString() const {
+    std::stringstream ss;
+    ss << "Block " << index << " {" << std::endl;
+    ss << "  Timestamp: " << timestamp << std::endl;
+    ss << "  Previous Hash: " << previousHash << std::endl;
+    ss << "  Merkle Root: " << merkleRoot << std::endl;
+    ss << "  Hash: " << hash << std::endl;
+    ss << "  Nonce: " << nonce << std::endl;
+    ss << "  Transactions (" << transactions.size() << "):" << std::endl;
+    
+    for (size_t i = 0; i < transactions.size(); i++) {
+        ss << "    " << (i + 1) << ". From: " << transactions[i]->getSender() 
+           << " To: " << transactions[i]->getReceiver() 
+           << " Amount: " << transactions[i]->getAmount() << std::endl;
+    }
+    ss << "}" << std::endl;
+    return ss.str();
+}
