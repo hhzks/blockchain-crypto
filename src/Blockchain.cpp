@@ -163,7 +163,7 @@ void Blockchain::printChain() const {
 }
 
 bool Blockchain::saveToFile(const std::string& filename) const {
-    std::ofstream file(filename);
+    std::ofstream file("blockchain_saves/" + filename);
     if (!file.is_open()) {
         std::cout << "Failed to open file for writing: " << filename << std::endl;
         return false;
