@@ -1,5 +1,5 @@
-#include "../include/Block.h"
-#include "../include/utils.h"
+#include "include/Block.h"
+#include "include/utils.h"
 #include <sstream>
 #include <iostream>
 #include <chrono>

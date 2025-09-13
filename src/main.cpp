@@ -1,5 +1,5 @@
-#include "../include/Blockchain.h"
-#include "../include/Transaction.h"
+#include "include/Blockchain.h"
+#include "include/Transaction.h"
 #include <iostream>
 #include <memory>
 #include <string>

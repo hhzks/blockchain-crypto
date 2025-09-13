@@ -1,19 +1,12 @@
-#include "../include/utils.h"
-#include <openssl/sha.h>
+#include "include/utils.h"
+#include "include/sha.h"
 #include <chrono>
 #include <algorithm>
 
 namespace utils {
 
 std::string sha256(const std::string& input) {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char*>(input.c_str()), input.size(), hash);
-    
-    std::stringstream ss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
-    }
-    return ss.str();
+    return SHA256::hash(input);
 }
 
 std::string calculateMerkleRoot(const std::vector<std::string>& transactions) {

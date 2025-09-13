@@ -16,18 +16,24 @@
     <ClCompile Include="C:\Users\H\Documents\blockchain\src\utils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\H\Documents\blockchain\src\sha.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="C:\Users\H\Documents\blockchain\include\Blockchain.h">
+    <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\Blockchain.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="C:\Users\H\Documents\blockchain\include\Block.h">
+    <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\Block.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="C:\Users\H\Documents\blockchain\include\Transaction.h">
+    <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\Transaction.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="C:\Users\H\Documents\blockchain\include\utils.h">
+    <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\utils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\sha.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
