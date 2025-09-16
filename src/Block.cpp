@@ -4,8 +4,9 @@
 #include <iostream>
 #include <chrono>
 
-Block::Block(int idx, const std::string& prevHash) 
-    : index(idx), timestamp(utils::getCurrentTimestamp()), previousHash(prevHash), nonce(0) {
+Block::Block(int idx, const std::string& prevHash, int blockDifficulty) 
+    : index(idx), timestamp(utils::getCurrentTimestamp()), previousHash(prevHash), 
+      difficulty(blockDifficulty), nonce(0) {
     hash = "";
     merkleRoot = "";
     calculateMerkleRoot();
@@ -20,7 +21,7 @@ void Block::addTransaction(std::shared_ptr<Transaction> transaction) {
 
 std::string Block::calculateHash() const {
     std::stringstream ss;
-    ss << index << timestamp << previousHash << merkleRoot << nonce;
+    ss << index << timestamp << previousHash << merkleRoot << difficulty << nonce;
     
     // Include all transaction hashes
     for (const auto& transaction : transactions) {
@@ -30,8 +31,8 @@ std::string Block::calculateHash() const {
     return utils::sha256(ss.str());
 }
 
-void Block::mineBlock(int difficulty) {
-    std::cout << "Mining block " << index << "..." << std::endl;
+void Block::mineBlock() {
+    std::cout << "Mining block " << index << " with difficulty " << difficulty << "..." << std::endl;
     
     std::string target(difficulty, '0');
     nonce = 0;
@@ -73,16 +74,16 @@ void Block::calculateMerkleRoot() {
     merkleRoot = utils::calculateMerkleRoot(transactionHashes);
 }
 
-bool Block::isValid(int difficulty) const {
+bool Block::isValid() const {
     // Check if hash is correctly calculated
     if (hash != calculateHash()) {
         std::cout << "Invalid block: Hash mismatch" << std::endl;
         return false;
     }
     
-    // Check proof of work
+    // Check proof of work using the block's stored difficulty
     if (!utils::checkProofOfWork(hash, difficulty)) {
-        std::cout << "Invalid block: Proof of work not satisfied" << std::endl;
+        std::cout << "Invalid block: Proof of work not satisfied for difficulty " << difficulty << std::endl;
         return false;
     }
     
@@ -107,6 +108,18 @@ bool Block::isValid(int difficulty) const {
     }
     
     return true;
+}
+
+bool Block::isValidWithDifficulty(int requiredDifficulty) const {
+    // First check if the stored difficulty matches the required difficulty
+    if (difficulty != requiredDifficulty) {
+        std::cout << "Invalid block: Difficulty " << difficulty 
+                  << " doesn't match required " << requiredDifficulty << std::endl;
+        return false;
+    }
+    
+    // Then perform standard validation
+    return isValid();
 }
 
 bool Block::isMined(int difficulty) const {

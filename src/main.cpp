@@ -14,9 +14,8 @@ void displayMenu() {
     std::cout << "5. Validate Blockchain" << std::endl;
     std::cout << "6. Save Blockchain" << std::endl;
     std::cout << "7. Load Blockchain" << std::endl;
-    std::cout << "8. Set Difficulty" << std::endl;
-    std::cout << "9. Run Demo" << std::endl;
-    std::cout << "0. Exit" << std::endl;
+    std::cout << "8. Run Demo" << std::endl;
+    std::cout << "9. Exit" << std::endl;
     std::cout << "Choice: ";
 }
 
@@ -160,26 +159,12 @@ int main() {
             }
             
             case 8: {
-                // Set Difficulty
-                int difficulty;
-                std::cout << "Enter new difficulty (current: " << blockchain.getDifficulty() << "): ";
-                std::cin >> difficulty;
-                if (difficulty >= 1 && difficulty <= 6) {
-                    blockchain.setDifficulty(difficulty);
-                    std::cout << "Difficulty set to " << difficulty << std::endl;
-                } else {
-                    std::cout << "Invalid difficulty! Use values between 1-6." << std::endl;
-                }
-                break;
-            }
-            
-            case 9: {
                 // Run Demo
                 runDemo(blockchain);
                 break;
             }
             
-            case 0: {
+            case 9: {
                 // Exit
                 std::cout << "Goodbye!" << std::endl;
                 return 0;

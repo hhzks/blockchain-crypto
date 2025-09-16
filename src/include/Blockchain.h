@@ -11,6 +11,10 @@
  */
 class Blockchain {
 private:
+    const int DIFFICULTY_ADJUSTMENT_INTERVAL = 10;
+    const long long TARGET_BLOCK_TIME = 30000;
+    const int INITIAL_DIFFICULTY = 2;
+    const int INITIAL_MINING_REWARD = 50;
     std::vector<std::shared_ptr<Block>> chain;
     std::vector<std::shared_ptr<Transaction>> pendingTransactions;
     int difficulty;
@@ -53,6 +57,11 @@ public:
      * @return Balance as double
      */
     double getBalance(const std::string& address);
+
+    int calculateRequiredDifficulty() const;
+
+    bool validateBlockDifficulty(const std::shared_ptr<Block>& block) const;
+
     
     /**
      * Validate the entire blockchain
@@ -72,12 +81,7 @@ public:
      */
     int getDifficulty() const { return difficulty; }
     
-    /**
-     * Set mining difficulty
-     * @param newDifficulty New difficulty value
-     */
-    void setDifficulty(int newDifficulty) { difficulty = newDifficulty; }
-    
+
     /**
      * Get mining reward amount
      * @return Mining reward as double
@@ -134,4 +138,12 @@ public:
      * @return True if transaction exists, false otherwise
      */
     bool transactionExists(const std::shared_ptr<Transaction>& transaction) const;
+
+private:
+    /**
+     * Calculate what difficulty was required at a specific block height
+     * @param height Block height to check
+     * @return Required difficulty at that height
+     */
+    int calculateRequiredDifficultyAtHeight(int height) const;
 };

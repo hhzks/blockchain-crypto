@@ -12,7 +12,8 @@ private:
     long long timestamp;
     std::vector<std::shared_ptr<Transaction>> transactions;
     std::string previousHash;
-    std::string merkleRoot;                       
+    std::string merkleRoot;
+    int difficulty;
     int nonce;
     std::string hash;
 public:
@@ -20,8 +21,9 @@ public:
      * Constructor for a new block
      * @param idx Index of the block
      * @param prevHash Hash of the previous block
+     * @param blockDifficulty Difficulty this block must be mined with
      */
-    Block(int idx, const std::string& prevHash);
+    Block(int idx, const std::string& prevHash, int blockDifficulty);
     
     /**
      * Add a transaction to this block
@@ -37,9 +39,8 @@ public:
     
     /**
      * Mine this block using proof of work
-     * @param difficulty Number of leading zeros required in hash
      */
-    void mineBlock(int difficulty);
+    void mineBlock();
     
     /**
      * Get block index
@@ -70,6 +71,12 @@ public:
      * @return Merkle root string
      */
     std::string getMerkleRoot() const { return merkleRoot; }
+
+    /**
+     * Get difficulty of block
+     * @return difficulty
+     */
+    int getDifficulty() const { return difficulty; }
     
     /**
      * Get nonce value
@@ -84,11 +91,17 @@ public:
     const std::vector<std::shared_ptr<Transaction>>& getTransactions() const { return transactions; }
     
     /**
-     * Validate this block
-     * @param difficulty Required difficulty for proof of work
+     * Validate this block (uses stored difficulty)
      * @return True if block is valid, false otherwise
      */
-    bool isValid(int difficulty) const;
+    bool isValid() const;
+    
+    /**
+     * Validate this block with required difficulty
+     * @param requiredDifficulty Required difficulty for validation
+     * @return True if block is valid, false otherwise
+     */
+    bool isValidWithDifficulty(int requiredDifficulty) const;
     
     /**
      * Convert block to string representation

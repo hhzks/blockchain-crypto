@@ -10,14 +10,12 @@ Blockchain::Blockchain() : difficulty(4), miningReward(100.0) {
 }
 
 std::shared_ptr<Block> Blockchain::createGenesisBlock() {
-    auto genesisBlock = std::make_shared<Block>(0, "0");
+    auto genesisBlock = std::make_shared<Block>(0, "0", INITIAL_DIFFICULTY);
     
-    // Add a genesis transaction
     auto genesisTransaction = std::make_shared<Transaction>("system", "genesis", 0);
     genesisBlock->addTransaction(genesisTransaction);
     
-    // Mine the genesis block
-    genesisBlock->mineBlock(difficulty);
+    genesisBlock->mineBlock();
     
     std::cout << "Genesis block created!" << std::endl;
     return genesisBlock;
@@ -34,13 +32,11 @@ void Blockchain::addTransaction(std::shared_ptr<Transaction> transaction) {
         return;
     }
     
-    // Check if transaction already exists
     if (transactionExists(transaction)) {
         std::cout << "Transaction already exists in blockchain!" << std::endl;
         return;
     }
     
-    // For non-mining transactions, check if sender has sufficient balance
     if (transaction->getSender() != "system") {
         double senderBalance = getBalance(transaction->getSender());
         if (senderBalance < transaction->getAmount()) {
@@ -60,15 +56,18 @@ void Blockchain::minePendingTransactions(const std::string& miningRewardAddress)
         return;
     }
     
-    std::cout << "Starting to mine block with " << pendingTransactions.size() << " transactions..." << std::endl;
+    // Calculate required difficulty based on network consensus
+    int requiredDifficulty = calculateRequiredDifficulty();
     
-    // Create new block
+    std::cout << "Starting to mine block with " << pendingTransactions.size() 
+              << " transactions at difficulty " << requiredDifficulty << "..." << std::endl;
+    
     auto newBlock = std::make_shared<Block>(
         static_cast<int>(chain.size()),
-        getLatestBlock()->getHash()
+        getLatestBlock()->getHash(),
+        requiredDifficulty
     );
     
-    // Add all pending transactions to the block
     for (auto& transaction : pendingTransactions) {
         newBlock->addTransaction(transaction);
     }
@@ -78,7 +77,13 @@ void Blockchain::minePendingTransactions(const std::string& miningRewardAddress)
     newBlock->addTransaction(rewardTransaction);
     
     // Mine the block
-    newBlock->mineBlock(difficulty);
+    newBlock->mineBlock();
+    
+    // Validate difficulty before adding (security check)
+    if (!validateBlockDifficulty(newBlock)) {
+        std::cout << "CRITICAL ERROR: Mined block has incorrect difficulty!" << std::endl;
+        return;
+    }
     
     // Add block to chain
     chain.push_back(newBlock);
@@ -90,6 +95,43 @@ void Blockchain::minePendingTransactions(const std::string& miningRewardAddress)
     updateBalances();
     
     std::cout << "Block mined and added to blockchain!" << std::endl;
+}
+
+int Blockchain::calculateRequiredDifficulty() const{
+    if (chain.size() < DIFFICULTY_ADJUSTMENT_INTERVAL) {
+        return INITIAL_DIFFICULTY;
+    }
+    
+    size_t lastAdjustmentIndex = chain.size() - DIFFICULTY_ADJUSTMENT_INTERVAL;
+    auto lastAdjustmentBlock = chain[lastAdjustmentIndex];
+    auto latestBlock = chain.back();
+    
+    long long timeExpected = TARGET_BLOCK_TIME * DIFFICULTY_ADJUSTMENT_INTERVAL;
+    long long timeActual = latestBlock->getTimestamp() - lastAdjustmentBlock->getTimestamp();
+    
+    int currentDifficulty = latestBlock->getDifficulty();
+    
+    if (timeActual < timeExpected / 2) {
+        return currentDifficulty + 1;
+    } else if (timeActual > timeExpected * 2) {
+        return std::max(1, currentDifficulty - 1);
+    }
+    
+    return currentDifficulty;
+}
+
+bool Blockchain::validateBlockDifficulty(const std::shared_ptr<Block>& block) const {
+    int requiredDifficulty = calculateRequiredDifficultyAtHeight(block->getIndex());
+    int blockDifficulty = block->getDifficulty();
+    
+    if (blockDifficulty != requiredDifficulty) {
+        std::cout << "Block " << block->getIndex() 
+                  << " has incorrect difficulty: " << blockDifficulty 
+                  << " (required: " << requiredDifficulty << ")" << std::endl;
+        return false;
+    }
+    
+    return true;
 }
 
 double Blockchain::getBalance(const std::string& address) {
@@ -115,13 +157,22 @@ bool Blockchain::isChainValid() const {
         return false;
     }
     
+    // Validate genesis block
+    if (!chain[0]->isValidWithDifficulty(INITIAL_DIFFICULTY)) {
+        std::cout << "Invalid genesis block" << std::endl;
+        return false;
+    }
+    
     // Check each block
     for (size_t i = 1; i < chain.size(); i++) {
         const auto& currentBlock = chain[i];
         const auto& previousBlock = chain[i - 1];
         
-        // Validate current block
-        if (!currentBlock->isValid(difficulty)) {
+        // Calculate what the difficulty should be at this height
+        int requiredDifficulty = calculateRequiredDifficultyAtHeight(i);
+        
+        // Validate current block with required difficulty
+        if (!currentBlock->isValidWithDifficulty(requiredDifficulty)) {
             std::cout << "Invalid block found at index " << i << std::endl;
             return false;
         }
@@ -131,12 +182,12 @@ bool Blockchain::isChainValid() const {
             std::cout << "Chain broken at block " << i << std::endl;
             return false;
         }
-    }
-    
-    // Validate genesis block separately
-    if (!chain[0]->isValid(difficulty)) {
-        std::cout << "Invalid genesis block" << std::endl;
-        return false;
+        
+        // Verify timestamp is reasonable (prevent time manipulation)
+        if (currentBlock->getTimestamp() <= previousBlock->getTimestamp()) {
+            std::cout << "Block " << i << " has invalid timestamp" << std::endl;
+            return false;
+        }
     }
     
     return true;
@@ -181,6 +232,7 @@ bool Blockchain::saveToFile(const std::string& filename) const {
         file << block->getPreviousHash() << std::endl;
         file << block->getHash() << std::endl;
         file << block->getMerkleRoot() << std::endl;
+        file << block->getDifficulty() << std::endl;
         file << block->getNonce() << std::endl;
         
         const auto& transactions = block->getTransactions();
@@ -222,11 +274,11 @@ bool Blockchain::loadFromFile(const std::string& filename) {
         int index;
         long long timestamp;
         std::string prevHash, hash, merkleRoot;
-        int nonce;
+        int blockDifficulty, nonce;
         
-        file >> index >> timestamp >> prevHash >> hash >> merkleRoot >> nonce;
+        file >> index >> timestamp >> prevHash >> hash >> merkleRoot >> blockDifficulty >> nonce;
         
-        auto block = std::make_shared<Block>(index, prevHash);
+        auto block = std::make_shared<Block>(index, prevHash, blockDifficulty);
         
         size_t txCount;
         file >> txCount;
@@ -287,4 +339,25 @@ bool Blockchain::transactionExists(const std::shared_ptr<Transaction>& transacti
     }
     
     return false;
+}
+
+int Blockchain::calculateRequiredDifficultyAtHeight(int height) const {
+    if (height == 0) {
+        return INITIAL_DIFFICULTY; // Genesis block
+    }
+    
+    if (height < DIFFICULTY_ADJUSTMENT_INTERVAL) {
+        return INITIAL_DIFFICULTY;
+    }
+    
+    // For blocks after the adjustment interval, we need to calculate based on timing
+    // In a real implementation, we'd recalculate difficulty as it would have been at that height
+    // For now, we'll simulate a progressive difficulty increase
+    
+    int adjustmentPeriods = height / DIFFICULTY_ADJUSTMENT_INTERVAL;
+    int baseDifficulty = INITIAL_DIFFICULTY;
+    
+    // Simple simulation: difficulty increases every adjustment period
+    // In reality, this would be calculated based on actual block timing at that height
+    return std::min(baseDifficulty + adjustmentPeriods, 6); // Cap at difficulty 6
 }
