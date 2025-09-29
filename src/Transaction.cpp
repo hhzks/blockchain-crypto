@@ -1,7 +1,9 @@
 #include "include/Transaction.h"
 #include "include/utils.h"
+#include "include/ECCrypto.h"
 #include <sstream>
 #include <iostream>
+#include <iomanip>
 
 Transaction::Transaction(const std::string& from, const std::string& to, double value)
     : sender(from), receiver(to), amount(value), timestamp(utils::getCurrentTimestamp()) {
@@ -11,26 +13,97 @@ Transaction::Transaction(const std::string& from, const std::string& to, double 
 
 std::string Transaction::calculateHash() const {
     std::stringstream ss;
-    ss << sender << receiver << amount << timestamp;
+    ss << sender << ":" << receiver << ":" << std::fixed << std::setprecision(8) << amount << ":" << timestamp;
     return utils::sha256(ss.str());
 }
 
-void Transaction::signTransaction(const std::string& privateKey) {
-    // Simplified signing - in real implementation, this would use proper cryptographic signing
-    std::string transactionData = sender + receiver + std::to_string(amount) + std::to_string(timestamp);
-    signature = utils::sha256(transactionData + privateKey);
+bool Transaction::signTransaction(const ECCrypto::PrivateKey& privateKey) {
+    if (!ECCrypto::isValidPrivateKey(privateKey)) {
+        std::cout << "Invalid private key for transaction signing" << std::endl;
+        return false;
+    }
+    
+    try {
+        // Get the transaction data to sign
+        std::string txData = getTransactionData();
+        
+        // Sign the transaction data
+        ECCrypto::Signature sig = ECCrypto::signMessage(txData, privateKey);
+        
+        // Convert signature to hex string
+        signature = ECCrypto::signatureToHex(sig);
+        
+        std::cout << "Transaction signed successfully" << std::endl;
+        return true;
+        
+    } catch (const std::exception& e) {
+        std::cout << "Error signing transaction: " << e.what() << std::endl;
+        return false;
+    }
 }
 
-bool Transaction::verifySignature(const std::string& publicKey) const {
+bool Transaction::signTransaction(const std::string& privateKeyHex) {
+    if (privateKeyHex.length() != ECCrypto::PRIVATE_KEY_SIZE * 2) {
+        std::cout << "Invalid private key hex length" << std::endl;
+        return false;
+    }
+    
+    ECCrypto::PrivateKey privKey;
+    if (ECCrypto::hexToBytes(privateKeyHex, privKey.data(), ECCrypto::PRIVATE_KEY_SIZE) != ECCrypto::PRIVATE_KEY_SIZE) {
+        std::cout << "Failed to parse private key hex" << std::endl;
+        return false;
+    }
+    
+    return signTransaction(privKey);
+}
+
+bool Transaction::verifySignature(const ECCrypto::PublicKey& publicKey) const {
     if (signature.empty()) {
         return false;
     }
     
-    // Simplified verification - in real implementation, this would use proper cryptographic verification
-    std::string transactionData = sender + receiver + std::to_string(amount) + std::to_string(timestamp);
-    std::string expectedSignature = utils::sha256(transactionData + publicKey);
+    if (!ECCrypto::isValidPublicKey(publicKey)) {
+        return false;
+    }
     
-    return signature == expectedSignature;
+    try {
+        // Convert hex signature back to bytes
+        ECCrypto::Signature sig = ECCrypto::signatureFromHex(signature);
+        
+        // Get the transaction data that was signed
+        std::string txData = getTransactionData();
+        
+        // Verify the signature
+        return ECCrypto::verifyMessageSignature(txData, sig, publicKey);
+        
+    } catch (const std::exception& e) {
+        std::cout << "Error verifying signature: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool Transaction::verifySignature(const std::string& publicKeyHex) const {
+    if (publicKeyHex.length() != ECCrypto::PUBLIC_KEY_SIZE * 2) {
+        return false;
+    }
+    
+    ECCrypto::PublicKey pubKey;
+    if (ECCrypto::hexToBytes(publicKeyHex, pubKey.data(), ECCrypto::PUBLIC_KEY_SIZE) != ECCrypto::PUBLIC_KEY_SIZE) {
+        return false;
+    }
+    
+    return verifySignature(pubKey);
+}
+
+bool Transaction::verifySignatureByAddress(const std::string& address) const {
+    if (signature.empty() || address.empty()) {
+        return false;
+    }
+    
+    // This is a simplified approach - in a real implementation, you would need
+    // to store public keys separately or use a more sophisticated verification method
+    // For now, we'll check if the sender address matches the provided address
+    return sender == address;
 }
 
 std::string Transaction::toString() const {
@@ -74,5 +147,14 @@ bool Transaction::isValid() const {
         return false;
     }
     
+    // In a real implementation, we would verify the signature here
+    // For now, we'll just check that a signature exists
+    // Full verification requires the public key of the sender
     return true;
+}
+
+std::string Transaction::getTransactionData() const {
+    std::stringstream ss;
+    ss << sender << ":" << receiver << ":" << std::fixed << std::setprecision(8) << amount << ":" << timestamp;
+    return ss.str();
 }

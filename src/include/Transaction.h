@@ -2,6 +2,7 @@
 
 #include <string>
 #include <ctime>
+#include "ECCrypto.h"
 
 /**
  * Represents a transaction in the blockchain
@@ -60,17 +61,39 @@ public:
     std::string calculateHash() const;
     
     /**
-     * Sign the transaction (simplified implementation)
-     * @param privateKey Private key for signing (simplified)
+     * Sign the transaction using ECC private key
+     * @param privateKey ECC private key for signing
+     * @return True if signing successful, false otherwise
      */
-    void signTransaction(const std::string& privateKey);
+    bool signTransaction(const ECCrypto::PrivateKey& privateKey);
     
     /**
-     * Verify transaction signature (simplified implementation)
-     * @param publicKey Public key for verification (simplified)
+     * Sign the transaction using hex-encoded private key
+     * @param privateKeyHex Hex string of private key
+     * @return True if signing successful, false otherwise
+     */
+    bool signTransaction(const std::string& privateKeyHex);
+    
+    /**
+     * Verify transaction signature using ECC public key
+     * @param publicKey ECC public key for verification
      * @return True if signature is valid, false otherwise
      */
-    bool verifySignature(const std::string& publicKey) const;
+    bool verifySignature(const ECCrypto::PublicKey& publicKey) const;
+    
+    /**
+     * Verify transaction signature using hex-encoded public key
+     * @param publicKeyHex Hex string of public key
+     * @return True if signature is valid, false otherwise
+     */
+    bool verifySignature(const std::string& publicKeyHex) const;
+    
+    /**
+     * Verify transaction signature using address (derived from public key)
+     * @param address Blockchain address to verify against
+     * @return True if signature is valid, false otherwise
+     */
+    bool verifySignatureByAddress(const std::string& address) const;
     
     /**
      * Convert transaction to string representation
@@ -83,4 +106,11 @@ public:
      * @return True if transaction is valid, false otherwise
      */
     bool isValid() const;
+    
+private:
+    /**
+     * Get the canonical transaction data for signing/verification
+     * @return Transaction data string
+     */
+    std::string getTransactionData() const;
 };

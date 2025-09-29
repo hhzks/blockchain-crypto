@@ -358,11 +358,15 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\Users\H\Documents\blockchain\src\Transaction.cpp" />
     <ClCompile Include="C:\Users\H\Documents\blockchain\src\utils.cpp" />
     <ClCompile Include="C:\Users\H\Documents\blockchain\src\sha.cpp" />
+    <ClCompile Include="C:\Users\H\Documents\blockchain\src\ECCrypto.cpp" />
+    <ClCompile Include="C:\Users\H\Documents\blockchain\src\Wallet.cpp" />
     <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\Blockchain.h" />
     <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\Block.h" />
     <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\Transaction.h" />
     <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\utils.h" />
     <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\sha.h" />
+    <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\ECCrypto.h" />
+    <ClInclude Include="C:\Users\H\Documents\blockchain\src\include\Wallet.h" />
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>

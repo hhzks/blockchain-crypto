@@ -13,6 +13,8 @@ set(SOURCES
     src/Transaction.cpp
     src/utils.cpp
     src/sha.cpp
+    src/ECCrypto.cpp
+    src/Wallet.cpp
 )
 
 set(HEADERS
@@ -21,6 +23,8 @@ set(HEADERS
     src/include/Transaction.h
     src/include/utils.h
     src/include/sha.h
+    src/include/ECCrypto.h
+    src/include/Wallet.h
 )
 
 add_executable(blockchain ${SOURCES} ${HEADERS})
