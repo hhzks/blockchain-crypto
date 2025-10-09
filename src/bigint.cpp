@@ -108,17 +108,17 @@ BigInt BigInt::operator-() const{
 
 std::strong_ordering BigInt::operator<=>(const BigInt& other) const{
     if (!negative && other.negative) {return std::strong_ordering::greater;}
-    if (negative && !other.negative) {return std::strong_ordering::greater;}
+    if (negative && !other.negative) {return std::strong_ordering::less;}
     if (digits.size() > other.digits.size()) {return std::strong_ordering::greater;}
     if (digits.size() < other.digits.size()) {return std::strong_ordering::less;}
 
     for (size_t i = digits.size() - 1; i >= 0; --i){
         if (digits[i] > other.digits[i]){
-            if (negative && other.negative) {return std::strong_ordering::less;} 
+            if (negative) {return std::strong_ordering::less;} 
             else {return std::strong_ordering::greater;}
         } 
         if (digits[i] < other.digits[i]){
-            if (negative && other.negative) {return std::strong_ordering::greater;} 
+            if (negative) {return std::strong_ordering::greater;} 
             else {return std::strong_ordering::less;}
         }
     }
