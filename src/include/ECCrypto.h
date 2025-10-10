@@ -18,6 +18,16 @@ namespace ECCrypto {
     using PublicKey = std::array<uint8_t, PUBLIC_KEY_SIZE>;
     using Signature = std::array<uint8_t, SIGNATURE_SIZE>;
     using Hash = std::array<uint8_t, HASH_SIZE>;
+
+    class ECPoint{
+        private:
+            BigInt x, y;
+            bool isInfinity;
+        public:
+            ECPoint operator+(const ECPoint& other) const;
+            ECPoint operator*(const BigInt& scalar) const;
+
+    };
     
     /**
      * Key pair structure containing both private and public keys
