@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bigint.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -21,11 +22,20 @@ namespace ECCrypto {
 
     class ECPoint{
         private:
-            BigInt x, y;
+            BigInt x, y, p, a, b;
             bool isInfinity;
         public:
+            ECPoint(BigInt GX, BigInt GY, BigInt P, BigInt A, BigInt B) : x(GX), y(GY), p(P), a(A), b(B) {isInfinity = false;}
+            ECPoint& operator=(const ECPoint& other) = default;
+
+            BigInt getX() const;
+            BigInt getY() const;
+
+            ECPoint doubledPoint() const;
             ECPoint operator+(const ECPoint& other) const;
             ECPoint operator*(const BigInt& scalar) const;
+            ECPoint operator+=(const ECPoint& other);
+            ECPoint operator*=(const BigInt& scalar);
 
     };
     

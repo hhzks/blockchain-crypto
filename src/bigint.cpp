@@ -58,7 +58,7 @@ void BigInt::normalise(){
 }
 
 std::string BigInt::toHex() const{
-    if (digits.empty()) {throw std::runtime_error("cannot represent an unitialized integer");}
+    if (digits.empty()) {std::cout << "burh"; throw std::runtime_error("Cannot represent an unitialized integer");}
     std::stringstream hex_stringstream;
     if (negative){
         hex_stringstream << "-";
@@ -68,6 +68,18 @@ std::string BigInt::toHex() const{
         hex_stringstream << std::hex << std::setw(8) << std::setfill('0') << digits[i-1];
     }
     return hex_stringstream.str();
+}
+
+std::string BigInt::toBinary() const{
+    if (digits.empty()) {throw std::runtime_error("Cannot represent an unitialized integer");}
+    std::stringstream binary_stringstream;
+    if (negative){
+        //binary_stringstream << "-";
+    }
+    for (size_t i = digits.size(); i > 0; i--){
+        binary_stringstream << std::hex << std::setw(32) << std::setfill('0') << digits[i-1];
+    }
+    return binary_stringstream.str();
 }
 
 BigInt BigInt::operator+(const BigInt& other) const {
@@ -156,7 +168,7 @@ BigInt BigInt::operator*(const BigInt& other) const{
     result.digits.resize(digits.size() + other.digits.size(), 0);
 
     for (size_t i = 0; i < digits.size(); ++i) {
-        if (digits[i] == 0) continue; // Skip zero digits
+        if (digits[i] == 0) continue;
         
         uint64_t carry = 0;
         uint64_t multiplicand = static_cast<uint64_t>(digits[i]);
@@ -176,6 +188,133 @@ BigInt BigInt::operator*(const BigInt& other) const{
 
     result.normalise();
     return result;
+}
+
+BigInt BigInt::square() const{
+    return *this * *this;
+}
+
+BigInt BigInt::operator/(const BigInt& other) const{
+    if (other.digits.size() == 1 && other.digits[0] == 0) {
+        throw std::runtime_error("Division by zero is undefined");
+    }
+
+    if (digits.size() == 1 && digits[0] == 0) {
+        return BigInt(0);
+    }
+
+    bool result_negative = negative != other.negative;
+
+    BigInt dividend = *this;
+    BigInt divisor = other;
+    dividend.negative = false;
+    divisor.negative = false;
+
+    if (dividend < divisor) {
+        return BigInt(0);
+    }
+
+    BigInt quotient;
+    BigInt remainder;
+
+    for (int i = dividend.digits.size() * 32 - 1; i >= 0; --i) {
+        remainder = remainder * BigInt(2);
+        
+        uint32_t word_index = i / 32;
+        uint32_t bit_index = i % 32;
+        if (word_index < dividend.digits.size() && 
+            (dividend.digits[word_index] & (1ULL << bit_index))) {
+            remainder += BigInt(1);
+        }
+        
+        if (remainder >= divisor) {
+            remainder -= divisor;
+            
+            if (quotient.digits.size() <= word_index) {
+                quotient.digits.resize(word_index + 1, 0);
+            }
+            quotient.digits[word_index] |= (1ULL << bit_index);
+        }
+    }
+
+    quotient.negative = result_negative;
+    quotient.normalise();
+    return quotient;
+}
+
+BigInt BigInt::operator%(const BigInt& other) const{
+    if (other.digits.size() == 1 && other.digits[0] == 0) {
+        throw std::runtime_error("Modulo zero is undefined");
+    }
+
+    BigInt abs_this = *this;
+    abs_this.negative = false;
+    BigInt abs_other = other;
+    abs_other.negative = false;
+    if (abs_this < abs_other) {
+        return *this;
+    }
+
+    BigInt quotient = *this / other;
+    BigInt remainder = *this - (quotient * other);
+    remainder.negative = negative;
+    return remainder;
+}
+
+BigInt& BigInt::operator+=(const BigInt& other) {
+    *this = *this + other;
+    return *this;
+}
+
+BigInt& BigInt::operator-=(const BigInt& other) {
+    *this = *this - other;
+    return *this;
+}
+
+BigInt& BigInt::operator*=(const BigInt& other) {
+    *this = *this * other;
+    return *this;
+}
+
+BigInt& BigInt::operator/=(const BigInt& other) {
+    *this = *this / other;
+    return *this;
+}
+
+BigInt& BigInt::operator%=(const BigInt& other) {
+    *this = *this % other;
+    return *this;
+}
+
+BigInt BigInt::inverse(const BigInt& mod) const{
+    BigInt current_mod = mod;
+    BigInt divisor = *this;
+    divisor = ((divisor % mod) + mod) % mod;
+
+    BigInt m0 = current_mod;
+    BigInt x0 = BigInt(0);
+    BigInt x1 = BigInt(1);
+
+    if (current_mod == BigInt(1))
+        return BigInt(0);
+
+    while (divisor > BigInt(1)) {
+        BigInt q = divisor / current_mod;
+        BigInt t = current_mod;
+
+        current_mod = divisor % current_mod;
+        divisor = t;
+        t = x0;
+
+        x0 = x1 - q * x0;
+        x1 = t;
+    }
+
+    if (x1 < BigInt(0))
+        x1 += m0;
+
+    std::cout << "inverse of " << (*this).toHex() << " is " << ((x1 % mod + mod) % mod).toHex() << '\n';
+    return (x1 % mod + mod) % mod;
 }
 
 bool BigInt::operator==(const BigInt& other) const{
@@ -206,6 +345,17 @@ std::strong_ordering BigInt::operator<=>(const BigInt& other) const{
     return std::strong_ordering::equal;
 }
 
+std::strong_ordering BigInt::operator<=>(const long long other) const{
+    if (!negative && other < 0) {return std::strong_ordering::greater;}
+    if (negative && other >= 0) {return std::strong_ordering::less;}
+    if (digits.size() == 1){
+        if (digits[0] < other) {return std::strong_ordering::less;}
+        else if (digits[0] == other) {return std::strong_ordering::equal;}
+    }
+    return std::strong_ordering::greater; //if digits.size >= 2 then the bigint is at least 2^32, so greater than other
+}
+
+/*
 int main(){
     std::vector<uint32_t> vec_1 = {12,214,1235};
     std::vector<uint32_t> vec_2 = {125, 12343, 31};
@@ -226,4 +376,15 @@ int main(){
     std:: cout << P.toHex() << std::endl << A.toHex() << std::endl << B.toHex() << std::endl << GX.toHex() << std::endl << GY.toHex() << std::endl;
     return 0;
     
+}*/
+
+int main(){
+    std::vector<uint32_t> vec_1 = {12,2142,4};
+    std::vector<uint32_t> vec_2 = {125};
+    BigInt bigint_1 = BigInt(vec_1);
+    BigInt bigint_2 = BigInt(vec_2);
+    std::cout << bigint_1.toHex() << std::endl;
+    std::cout << bigint_2.toHex() << std::endl;
+    std::cout << (bigint_1/bigint_2).toHex() << std::endl;
+    std::cout << (bigint_1%bigint_2).toHex() << std::endl;
 }
