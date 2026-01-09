@@ -977,7 +977,7 @@ BigInt inverse(const BigInt &a, const BigInt &mod){
     BigInt y_before;
     BigInt temp_a_before;
     while (temp_a > 1){
-        q = temp_mod / a;
+        q = temp_mod / temp_a;
 
         y_before = y;
         y = y_prev - q * y;
@@ -1468,7 +1468,7 @@ BigInt BigInt::operator/(const BigInt& num) const {
 
 BigInt BigInt::operator%(const BigInt& num) const {
     BigInt abs_divisor = abs(num);
-    BigInt abs_dividend = (this->sign == '+') ? this->value : *this + abs_divisor;
+    BigInt abs_dividend = (this->sign == '+') ? *this : *this + abs_divisor * abs(*this/abs_divisor);
 
 
     if (abs_divisor == 0)
