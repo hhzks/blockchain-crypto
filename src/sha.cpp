@@ -49,7 +49,6 @@ namespace SHA256 {
             uint32_t a, b, c, d, e, f, g, h;
             uint32_t t1, t2;
             
-            // Prepare message schedule
             for (int i = 0; i < 16; i++) {
                 w[i] = bytesToWord(&block[i * 4]);
             }
@@ -89,41 +88,31 @@ namespace SHA256 {
             hash[6] += g;
             hash[7] += h;
         }
-    }  // End anonymous namespace
+    }
     
     std::string hash(const uint8_t* data, size_t length) {
-        // Initialize hash values
         uint32_t hash[8];
         for (int i = 0; i < 8; i++) {
             hash[i] = H0[i];
         }
         
-        // Calculate padding
         size_t totalBits = length * 8;
         size_t paddingBits = (448 - (totalBits % 512) + 512) % 512;
         size_t paddingBytes = paddingBits / 8;
         size_t totalLength = length + paddingBytes + 8;
         
-        // Create padded message
         std::vector<uint8_t> paddedMessage(totalLength);
-        
-        // Copy original data
         std::memcpy(paddedMessage.data(), data, length);
-        
-        // Add padding bit (0x80)
         paddedMessage[length] = 0x80;
         
-        // Add original length as 64-bit big-endian integer
         for (int i = 0; i < 8; i++) {
             paddedMessage[totalLength - 8 + i] = static_cast<uint8_t>(totalBits >> (56 - i * 8));
         }
         
-        // Process message in 512-bit blocks
         for (size_t i = 0; i < totalLength; i += 64) {
             processBlock(&paddedMessage[i], hash);
         }
         
-        // Convert hash to hex string
         std::stringstream ss;
         for (int i = 0; i < 8; i++) {
             ss << std::hex << std::setw(8) << std::setfill('0') << hash[i];

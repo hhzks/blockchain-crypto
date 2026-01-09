@@ -10,19 +10,6 @@
 
 namespace ECCrypto {
 
-namespace secp256k1 {
-    //curve parameters
-    const BigInt P ({0xFFFFFC2F, 0xFFFFFFFE,  0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF});
-    const BigInt A (0);
-    const BigInt B (7);
-
-    //generator point stuff
-    const BigInt GX ({0x16F81798, 0x59F2815B, 0x2DCE28D9, 0x029BFCDB, 0xCE870B07, 0x55A06295, 0xF9DCBBAC, 0x79BE667E});
-    const BigInt GY ({0xFB10D4B8, 0x9C47D08F, 0xA6855419, 0xFD17B448, 0x0E1108A8, 0x5DA4FBFC, 0x26A3C465, 0x483ADA77});
-    const BigInt N ({0xD0364141, 0xBFD25E8C, 0xAF48A03B, 0xBAAEDCE6, 0xFFFFFFFE, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF});
-
-};
-
 BigInt ECPoint::getX() const{
     return x;
 }
@@ -31,39 +18,60 @@ BigInt ECPoint::getY() const{
     return y;
 }
 
-ECPoint ECPoint::doubledPoint() const{
-    //insert infinity check
+ECPoint ECPoint::pointAtInfinity() const{
+    ECPoint result = ECPoint {0, 0, p, a, b};
+    result.isInfinity = true;
+    return result;
+}
 
-    BigInt gradient = ((x.square() * 3) + a) * (y * 2).inverse(p);
-    BigInt doubled_x = (gradient.square() - (x * 2)) % p;
-    BigInt doubled_y = (gradient * (x - doubled_x) - y) % p;
-    return ECPoint {doubled_x, doubled_y, p, a, b};
+ECPoint ECPoint::doubledPoint() const{
+    if (y == 0) {
+        return pointAtInfinity();
+    }
+
+    BigInt slope = (((squared(x) * 3) + a) * inverse(y*2,p)) % p;
+    BigInt new_x = (squared(slope) - (x * 2)) % p;
+    BigInt new_y = ((slope * (x - new_x) - y) % p + p) % p;
+    return ECPoint {new_x, new_y, p, a, b};
 }
 
 ECPoint ECPoint::operator+(const ECPoint& other) const{
+    if (isInfinity && other.isInfinity){return pointAtInfinity();}
+    if (!isInfinity && other.isInfinity) {return *this;}
+    if (isInfinity && !other.isInfinity) {return other;}
+
     if (x == other.x && y == other.y){
         return doubledPoint();
     }
 
-    //insert infinity check
+    if (x == other.x && y != other.y) {
+        return pointAtInfinity();
+    }
 
-    BigInt slope = (y - other.y) * (x - other.x).inverse(p);
-    BigInt new_x = (slope.square() - x - other.x) % p;
-    BigInt new_y = ((slope * (x - new_x)) - y) % p;
+    BigInt slope = (inverse((other.y - y) * (other.x - x),p)) % p;
+    BigInt new_x = (squared(slope) - x - other.x) % p;
+    BigInt new_y = (slope * (x - new_x) - y) % p;
     return ECPoint {new_x, new_y, p, a, b};
 }
 
 ECPoint ECPoint::operator*(const BigInt& scalar) const{
-    ECPoint current = *this;
-    std::string binary_str = scalar.toBinary();
-    binary_str = binary_str.substr(3, binary_str.size()-4);
+    if (scalar == 0) {
+        return pointAtInfinity();
+    }
     
-    for (size_t i = 0; i < binary_str.size(); i++){
-        std::cout << "Index " << i << "\n";
+    ECPoint current = *this;
+    std::string binary_str = scalar.to_binary_string();
+    std::cout << binary_str << std::endl;
+    
+    size_t i = 0;
+    while (i < binary_str.size() && binary_str[i] != '1') {i++;}
+    
+    for (++i; i < binary_str.size(); i++){
         current = current.doubledPoint();
         if (binary_str[i] == '1') {
             current += *this;
         }
+        std::cout << current.getX() << " " << current.getY() << std::endl;
     }
     
     return current;
@@ -73,15 +81,78 @@ ECPoint ECPoint::operator+=(const ECPoint& other){
     *this = *this + other;
     return *this;
 }
-    
+
+ECPoint ECPoint::operator*=(const BigInt& scalar){
+    *this = *this * scalar;
+    return *this;
 }
 
-using namespace ECCrypto; 
-int main(){
-    ECPoint point_1 = ECPoint{secp256k1::GX, secp256k1::GY, secp256k1::P, secp256k1::A, secp256k1::B};
-    BigInt multiplier = BigInt(45374698053069);
-    std::cout << "Calculating..." << '\n';
-    ECPoint result = point_1 * multiplier;
-    std::cout << result.getX().toHex() << ' ' << result.getY().toHex() << '\n';
+/*
+std::unique_ptr<KeyPair> generateKeyPair(){
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    std::uniform_int_distribution<uint32_t> dis(0, UINT32_MAX);
+    
+    std::vector<uint32_t> privateKeyData(8);
+    BigInt privateKey = 0;
+
+    while (privateKey == 0){
+        for (int i = 0; i < 8; i++) {
+            privateKeyData[i] = dis(gen);
+        }
+        
+        privateKey = privateKeyData;
+        privateKey %= secp256k1::N;
+    }
+    
+    ECPoint publicKey = G * privateKey;
+    
+    auto keyPair = std::make_unique<KeyPair>();
+    keyPair->privateKey = privateKey;
+    keyPair->publicKey = publicKey;
+    
+    return keyPair;
+
+}
+*/
+}
+
+int main() {
+    
+    std::cout << inverse(BigInt(44), BigInt(67)) << std::endl;
+    std::cout << BigInt(-19) % BigInt(31) << std::endl;
+    ECCrypto::ECPoint G {ECCrypto::secp256k1::GX, ECCrypto::secp256k1::GY, ECCrypto::secp256k1::P, ECCrypto::secp256k1::A, ECCrypto::secp256k1::B};
+    std::cout << "x = " << G.getX().to_string() << std::endl;
+    std::cout << "y = " << G.getY().to_string() << std::endl;
+    // Test vector for Point Addition
+    // Let's add G to itself and compare with 2*G
+    ECCrypto::ECPoint pointAdditionResult = G + G;
+    // Output the results of Point Addition
+    std::cout << "Point Addition Result:" << std::endl;
+    std::cout << "x = " << pointAdditionResult.getX().to_string() << std::endl;
+    std::cout << "y = " << pointAdditionResult.getY().to_string() << std::endl;
+    ECCrypto::ECPoint G1 {ECCrypto::secp256k1::GX, ECCrypto::secp256k1::GY, ECCrypto::secp256k1::P, ECCrypto::secp256k1::A, ECCrypto::secp256k1::B};
+    ECCrypto::ECPoint expectedAdditionResult = G1 * BigInt(2);
+    std::cout << "Scalar Multiplication Result:" << std::endl;
+    std::cout << "x = " << expectedAdditionResult.getX().to_string() << std::endl;
+    std::cout << "y = " << expectedAdditionResult.getY().to_string() << std::endl;
+    // Comparing and output the test result for Point Addition
+    bool isAdditionCorrect = pointAdditionResult.getX() == expectedAdditionResult.getX() && pointAdditionResult.getY() == expectedAdditionResult.getY();
+    std::cout << "Point Addition Test " << (isAdditionCorrect ? "PASSED" : "FAILED") << std::endl;
+    // Test vector for Scalar Multiplication
+    // Scalar value k = 3
+    // G.print();
+    ECCrypto::ECPoint scalarMultiplicationResult = G * BigInt(3);
+    // Expected values for 3*G (you can compute this using an external ECC calculator or library)
+    std::string expected_x_str = "112711660439710606056748659173929673102114977341539408544630613555209775888121";
+    std::string expected_y_str = "25583027980570883691656905877401976406448868254816295069919888960541586679410";
+    // Output of the results of Scalar Multiplication
+    std::cout << "Scalar Multiplication Result:" << std::endl;
+    std::cout << "x = " << scalarMultiplicationResult.getX().to_string() << std::endl;
+    std::cout << "y = " << scalarMultiplicationResult.getY().to_string() << std::endl;
+    // Comparing and output the test result for Scalar Multiplication
+    bool isMultiplicationCorrect = (scalarMultiplicationResult.getX().to_string() == expected_x_str) &&
+                                   (scalarMultiplicationResult.getY().to_string() == expected_y_str);
+    std::cout << "Scalar Multiplication Test " << (isMultiplicationCorrect ? "PASSED" : "FAILED") << std::endl;
     return 0;
 }

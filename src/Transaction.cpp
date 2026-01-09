@@ -7,7 +7,6 @@
 
 Transaction::Transaction(const std::string& from, const std::string& to, double value)
     : sender(from), receiver(to), amount(value), timestamp(utils::getCurrentTimestamp()) {
-    // Initialize signature as empty - will be set when transaction is signed
     signature = "";
 }
 

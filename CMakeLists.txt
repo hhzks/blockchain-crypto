@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
+set(CMAKE_CXX_COMPILER "C:/dev/w64devkit/bin/g++.exe")
+set(CMAKE_C_COMPILER "C:/dev/w64devkit/bin/gcc.exe")
 project(Blockchain)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-
 
 set(SOURCES
     src/main.cpp
@@ -15,6 +15,7 @@ set(SOURCES
     src/sha.cpp
     src/ECCrypto.cpp
     src/Wallet.cpp
+    src/bigint.cpp
 )
 
 set(HEADERS
@@ -25,15 +26,33 @@ set(HEADERS
     src/include/sha.h
     src/include/ECCrypto.h
     src/include/Wallet.h
+    src/include/bigint.h
 )
 
+# Main blockchain executable
 add_executable(blockchain ${SOURCES} ${HEADERS})
+
+# Wallet test executable
+add_executable(test_wallet 
+    src/test_wallet.cpp
+    src/Blockchain.cpp
+    src/Block.cpp
+    src/Transaction.cpp
+    src/utils.cpp
+    src/sha.cpp
+    src/ECCrypto.cpp
+    src/Wallet.cpp
+    src/bigint.cpp
+    ${HEADERS}
+)
 
 # Compiler flags
 if(MSVC)
     target_compile_options(blockchain PRIVATE /W4)
+    target_compile_options(test_wallet PRIVATE /W4)
 else()
     target_compile_options(blockchain PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(test_wallet PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 # Print debug information
