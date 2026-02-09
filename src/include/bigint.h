@@ -32,6 +32,7 @@ class BigInt {
         BigInt(const BigInt&);
         BigInt(const long long&);
         BigInt(const std::string&);
+        BigInt(const std::string& num, int base);  // Create from string in given base (2-36)
 
         // Assignment operators:
         BigInt& operator=(const BigInt&);
@@ -355,6 +356,85 @@ BigInt::BigInt(const std::string& num) {
         else {
             throw std::invalid_argument("Expected an integer, got \'" + num + "\'");
         }
+    }
+    strip_leading_zeroes(value);
+}
+
+
+/*
+    String with base to BigInt
+    --------------------------
+    Creates a BigInt from a string representation in a given base (2-36).
+    Supports bases 2 (binary), 8 (octal), 10 (decimal), 16 (hexadecimal), etc.
+    Digits for bases > 10 use letters: a-z (case insensitive) for values 10-35.
+*/
+
+BigInt::BigInt(const std::string& num, int base) {
+    if (base < 2 || base > 36) {
+        throw std::invalid_argument("Base must be between 2 and 36");
+    }
+    
+    if (num.empty()) {
+        throw std::invalid_argument("Empty string is not a valid number");
+    }
+    
+    // Handle sign
+    size_t start = 0;
+    sign = '+';
+    if (num[0] == '+' || num[0] == '-') {
+        sign = num[0];
+        start = 1;
+    }
+    
+    // Skip leading zeros but keep at least one digit
+    while (start < num.size() - 1 && num[start] == '0') {
+        start++;
+    }
+    
+    // If base 10, use the regular constructor logic
+    if (base == 10) {
+        std::string magnitude = num.substr(start);
+        if (is_valid_number(magnitude)) {
+            value = magnitude;
+        } else {
+            throw std::invalid_argument("Expected a base-10 integer, got \'" + num + "\'");
+        }
+        strip_leading_zeroes(value);
+        if (value == "0") sign = '+';
+        return;
+    }
+    
+    // Convert from given base to decimal
+    BigInt result = 0;
+    BigInt base_multiplier = 1;
+    BigInt base_bigint(base);
+    
+    // Process digits from right to left
+    for (size_t i = num.size(); i > start; i--) {
+        char c = num[i - 1];
+        int digit_value;
+        
+        if (c >= '0' && c <= '9') {
+            digit_value = c - '0';
+        } else if (c >= 'a' && c <= 'z') {
+            digit_value = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'Z') {
+            digit_value = c - 'A' + 10;
+        } else {
+            throw std::invalid_argument("Invalid character \'" + std::string(1, c) + "\' for base " + std::to_string(base));
+        }
+        
+        if (digit_value >= base) {
+            throw std::invalid_argument("Invalid digit \'" + std::string(1, c) + "\' for base " + std::to_string(base));
+        }
+        
+        result = result + (BigInt(digit_value) * base_multiplier);
+        base_multiplier = base_multiplier * base_bigint;
+    }
+    
+    value = result.value;
+    if (value == "0") {
+        sign = '+';
     }
     strip_leading_zeroes(value);
 }

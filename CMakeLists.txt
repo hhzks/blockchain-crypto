@@ -15,7 +15,6 @@ set(SOURCES
     src/sha.cpp
     src/ECCrypto.cpp
     src/Wallet.cpp
-    src/bigint.cpp
 )
 
 set(HEADERS
@@ -33,26 +32,22 @@ set(HEADERS
 add_executable(blockchain ${SOURCES} ${HEADERS})
 
 # Wallet test executable
-add_executable(test_wallet 
-    src/test_wallet.cpp
-    src/Blockchain.cpp
-    src/Block.cpp
+add_executable(test_ECC 
     src/Transaction.cpp
     src/utils.cpp
     src/sha.cpp
     src/ECCrypto.cpp
     src/Wallet.cpp
-    src/bigint.cpp
     ${HEADERS}
 )
 
 # Compiler flags
 if(MSVC)
     target_compile_options(blockchain PRIVATE /W4)
-    target_compile_options(test_wallet PRIVATE /W4)
+    target_compile_options(test_ECC PRIVATE /W4)
 else()
     target_compile_options(blockchain PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(test_wallet PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(test_ECC PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 # Print debug information

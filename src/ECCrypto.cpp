@@ -86,6 +86,44 @@ ECPoint ECPoint::operator*=(const BigInt& scalar){
     return *this;
 }
 
+std::unique_ptr<ECCrypto::KeyPair> generateKeyPair(){
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    std::uniform_int_distribution<unsigned long long> dis;
+        
+    BigInt private_key = 0;
+    std::string priv_str;
+        
+    // Generate a random 256-bit private key
+    for (int i = 0; i < 4; i++) {
+        unsigned long long rand_val = dis(gen);
+        std::stringstream ss;
+        ss << std::hex << rand_val;
+        priv_str += ss.str();
+    }
+        
+    private_key = BigInt(priv_str, 16);
+    private_key = private_key % ECCrypto::secp256k1::N;
+        
+    if (private_key == 0) {
+        private_key = 1;
+    }
+        
+    return keyPairFromPrivateKey(private_key);
+}
+
+std::unique_ptr<KeyPair> keyPairFromPrivateKey(const BigInt& private_key){
+    return std::make_unique<KeyPair>(private_key, G * (private_key % ECCrypto::secp256k1::N));
+}
+
+std::unique_ptr<KeyPair> keyPairFromPrivateKeyHex(const std::string& private_key_hex){
+    BigInt private_key {BigInt(private_key_hex,16)};
+    return std::make_unique<KeyPair>(private_key, G * (private_key_hex % ECCrypto::secp256k1::N));
+}
+
+Signature signHash(const Hash& hash, const BigInt& privateKey){
+    return Signature();
+}
 
 int main() {
     

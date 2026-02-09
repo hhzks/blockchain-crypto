@@ -65,7 +65,7 @@ namespace ECCrypto {
         std::string address;  // Derived address for blockchain use
         
         KeyPair();
-        KeyPair(const BigInt& privKey, const ECPoint& pubKey);
+        KeyPair(const BigInt& private_key, const ECPoint& public_key);
     };
     
     /**
@@ -89,7 +89,7 @@ namespace ECCrypto {
     std::unique_ptr<KeyPair> keyPairFromPrivateKeyHex(const std::string& privateKeyHex);
     
     /**
-     * Sign a hash using ECDSA with secp256k1
+     * Sign a hash using Schnorr with secp256k1
      * @param hash The 32-byte hash to sign
      * @param privateKey The private key to sign with
      * @return Signature bytes, or empty array if signing failed
@@ -105,7 +105,7 @@ namespace ECCrypto {
     Signature signMessage(const std::string& message, const BigInt& privateKey);
     
     /**
-     * Verify an ECDSA signature
+     * Verify a Schnorr signature
      * @param hash The original hash that was signed
      * @param signature The signature to verify
      * @param publicKey The public key to verify against
