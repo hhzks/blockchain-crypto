@@ -23,8 +23,19 @@ std::string Wallet::generateNewAddress() {
         
         // Create our internal KeyPair structure
         auto keyPair = std::make_unique<KeyPair>();
-        keyPair->privateKey = eccKeyPair->privateKey;
-        keyPair->publicKey = eccKeyPair->publicKey;
+        
+        // Convert private key hex to bytes
+        if (ECCrypto::hexToBytes(eccKeyPair->privateKeyHex, keyPair->privateKey.data(), ECCrypto::PRIVATE_KEY_SIZE) != ECCrypto::PRIVATE_KEY_SIZE) {
+            std::cerr << "Failed to convert private key to bytes" << std::endl;
+            return "";
+        }
+        
+        // Convert public key hex to bytes
+        if (ECCrypto::hexToBytes(eccKeyPair->publicKeyHex, keyPair->publicKey.data(), ECCrypto::PUBLIC_KEY_SIZE) != ECCrypto::PUBLIC_KEY_SIZE) {
+            std::cerr << "Failed to convert public key to bytes" << std::endl;
+            return "";
+        }
+        
         keyPair->address = eccKeyPair->address;
         
         // Store the key pair
@@ -104,8 +115,19 @@ bool Wallet::importPrivateKey(const std::string& privateKeyHex) {
         
         // Create our internal KeyPair structure
         auto keyPair = std::make_unique<KeyPair>();
-        keyPair->privateKey = eccKeyPair->privateKey;
-        keyPair->publicKey = eccKeyPair->publicKey;
+        
+        // Convert private key hex to bytes
+        if (ECCrypto::hexToBytes(eccKeyPair->privateKeyHex, keyPair->privateKey.data(), ECCrypto::PRIVATE_KEY_SIZE) != ECCrypto::PRIVATE_KEY_SIZE) {
+            std::cerr << "Failed to convert private key to bytes" << std::endl;
+            return false;
+        }
+        
+        // Convert public key hex to bytes
+        if (ECCrypto::hexToBytes(eccKeyPair->publicKeyHex, keyPair->publicKey.data(), ECCrypto::PUBLIC_KEY_SIZE) != ECCrypto::PUBLIC_KEY_SIZE) {
+            std::cerr << "Failed to convert public key to bytes" << std::endl;
+            return false;
+        }
+        
         keyPair->address = eccKeyPair->address;
         
         // Store the key pair

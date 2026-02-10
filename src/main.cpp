@@ -1,21 +1,33 @@
 #include "include/Blockchain.h"
 #include "include/Transaction.h"
+#include "include/P2PNode.h"
 #include <iostream>
 #include <memory>
 #include <string>
 #include <chrono>
 
+// Global P2P node pointer
+std::unique_ptr<p2p::P2PNode> p2pNode;
+
 void displayMenu() {
     std::cout << "\n=== BLOCKCHAIN DEMO ===" << std::endl;
-    std::cout << "1. Add Transaction" << std::endl;
-    std::cout << "2. Mine Block" << std::endl;
-    std::cout << "3. Check Balance" << std::endl;
-    std::cout << "4. Display Blockchain" << std::endl;
-    std::cout << "5. Validate Blockchain" << std::endl;
-    std::cout << "6. Save Blockchain" << std::endl;
-    std::cout << "7. Load Blockchain" << std::endl;
-    std::cout << "8. Run Demo" << std::endl;
-    std::cout << "9. Exit" << std::endl;
+    std::cout << "1.  Add Transaction" << std::endl;
+    std::cout << "2.  Mine Block" << std::endl;
+    std::cout << "3.  Check Balance" << std::endl;
+    std::cout << "4.  Display Blockchain" << std::endl;
+    std::cout << "5.  Validate Blockchain" << std::endl;
+    std::cout << "6.  Save Blockchain" << std::endl;
+    std::cout << "7.  Load Blockchain" << std::endl;
+    std::cout << "8.  Run Demo" << std::endl;
+    std::cout << "--- P2P Network ---" << std::endl;
+    std::cout << "10. Start P2P Node" << std::endl;
+    std::cout << "11. Stop P2P Node" << std::endl;
+    std::cout << "12. Connect to Peer" << std::endl;
+    std::cout << "13. Show Connected Peers" << std::endl;
+    std::cout << "14. Request Blockchain Sync" << std::endl;
+    std::cout << "15. P2P Node Status" << std::endl;
+    std::cout << "-------------------" << std::endl;
+    std::cout << "0.  Exit" << std::endl;
     std::cout << "Choice: ";
 }
 
@@ -70,6 +82,174 @@ void runDemo(Blockchain& blockchain) {
     std::cout << "\nDemo completed!" << std::endl;
 }
 
+void setupP2PCallbacks(Blockchain& blockchain) {
+    if (!p2pNode) return;
+    
+    p2p::P2PCallbacks callbacks;
+    
+    callbacks.onPeerConnected = [](std::shared_ptr<p2p::Peer> peer) {
+        std::cout << "\n[P2P] Peer connected: " << peer->getAddress() << std::endl;
+    };
+    
+    callbacks.onPeerDisconnected = [](std::shared_ptr<p2p::Peer> peer) {
+        std::cout << "\n[P2P] Peer disconnected: " << peer->getAddress() << std::endl;
+    };
+    
+    callbacks.onNewBlock = [&blockchain](std::shared_ptr<Block> block) {
+        std::cout << "\n[P2P] Received new block #" << block->getIndex() << std::endl;
+        // In a real implementation, you would validate and add the block
+        // blockchain.addBlock(block);
+    };
+    
+    callbacks.onNewTransaction = [&blockchain](std::shared_ptr<Transaction> tx) {
+        std::cout << "\n[P2P] Received new transaction: " 
+                  << tx->getSender() << " -> " << tx->getReceiver() 
+                  << " (" << tx->getAmount() << ")" << std::endl;
+        blockchain.addTransaction(tx);
+    };
+    
+    callbacks.onSyncProgress = [](int64_t progress) {
+        std::cout << "\r[P2P] Sync progress: " << progress << "%" << std::flush;
+        if (progress >= 100) std::cout << std::endl;
+    };
+    
+    p2pNode->setCallbacks(callbacks);
+}
+
+void startP2PNode(Blockchain& blockchain) {
+    if (p2pNode && p2pNode->isRunning()) {
+        std::cout << "P2P node is already running!" << std::endl;
+        return;
+    }
+    
+    uint16_t port;
+    std::cout << "Enter port to listen on (default 8333): ";
+    std::string portStr;
+    std::cin >> portStr;
+    
+    try {
+        port = portStr.empty() ? 8333 : static_cast<uint16_t>(std::stoi(portStr));
+    } catch (...) {
+        port = 8333;
+    }
+    
+    p2p::P2PConfig config;
+    config.listenPort = port;
+    config.maxPeers = 25;
+    config.minPeers = 3;
+    config.enableLogging = true;
+    
+    // Optional: Add seed nodes
+    std::cout << "Add seed node? (y/n): ";
+    char addSeed;
+    std::cin >> addSeed;
+    
+    while (addSeed == 'y' || addSeed == 'Y') {
+        std::string seedIp;
+        uint16_t seedPort;
+        
+        std::cout << "Enter seed node IP: ";
+        std::cin >> seedIp;
+        std::cout << "Enter seed node port: ";
+        std::cin >> seedPort;
+        
+        config.seedNodes.push_back(seedIp + ":" + std::to_string(seedPort));
+        
+        std::cout << "Add another seed node? (y/n): ";
+        std::cin >> addSeed;
+    }
+    
+    p2pNode = std::make_unique<p2p::P2PNode>(&blockchain, config);
+    setupP2PCallbacks(blockchain);
+    
+    if (p2pNode->start()) {
+        std::cout << "P2P node started successfully!" << std::endl;
+        std::cout << "Node ID: " << p2pNode->getNodeId() << std::endl;
+        std::cout << "Listening on port: " << p2pNode->getPort() << std::endl;
+    } else {
+        std::cout << "Failed to start P2P node!" << std::endl;
+        p2pNode.reset();
+    }
+}
+
+void stopP2PNode() {
+    if (!p2pNode || !p2pNode->isRunning()) {
+        std::cout << "P2P node is not running!" << std::endl;
+        return;
+    }
+    
+    p2pNode->stop();
+    p2pNode.reset();
+    std::cout << "P2P node stopped." << std::endl;
+}
+
+void connectToPeer() {
+    if (!p2pNode || !p2pNode->isRunning()) {
+        std::cout << "P2P node is not running! Start it first." << std::endl;
+        return;
+    }
+    
+    std::string ip;
+    uint16_t port;
+    
+    std::cout << "Enter peer IP address: ";
+    std::cin >> ip;
+    std::cout << "Enter peer port: ";
+    std::cin >> port;
+    
+    if (p2pNode->connectToPeer(ip, port)) {
+        std::cout << "Connection initiated to " << ip << ":" << port << std::endl;
+    } else {
+        std::cout << "Failed to connect to " << ip << ":" << port << std::endl;
+    }
+}
+
+void showConnectedPeers() {
+    if (!p2pNode || !p2pNode->isRunning()) {
+        std::cout << "P2P node is not running!" << std::endl;
+        return;
+    }
+    
+    auto peers = p2pNode->getConnectedPeers();
+    
+    std::cout << "\n=== Connected Peers (" << peers.size() << ") ===" << std::endl;
+    if (peers.empty()) {
+        std::cout << "No peers connected." << std::endl;
+    } else {
+        for (const auto& peer : peers) {
+            std::cout << "  - " << peer.ip << ":" << peer.port;
+            if (!peer.nodeId.empty()) {
+                std::cout << " (ID: " << peer.nodeId.substr(0, 8) << "...)";
+            }
+            std::cout << std::endl;
+        }
+    }
+}
+
+void requestSync() {
+    if (!p2pNode || !p2pNode->isRunning()) {
+        std::cout << "P2P node is not running!" << std::endl;
+        return;
+    }
+    
+    std::cout << "Requesting blockchain sync from peers..." << std::endl;
+    p2pNode->requestSync();
+}
+
+void showP2PStatus() {
+    if (!p2pNode) {
+        std::cout << "P2P node not initialized." << std::endl;
+        return;
+    }
+    
+    std::cout << "\n=== P2P Node Status ===" << std::endl;
+    std::cout << "Running: " << (p2pNode->isRunning() ? "Yes" : "No") << std::endl;
+    std::cout << "Node ID: " << p2pNode->getNodeId() << std::endl;
+    std::cout << "Port: " << p2pNode->getPort() << std::endl;
+    std::cout << "Connected peers: " << p2pNode->getPeerCount() << std::endl;
+    std::cout << "Syncing: " << (p2pNode->isSyncing() ? "Yes" : "No") << std::endl;
+}
+
 int main() {
     std::cout << "Blockchain Implementation in C++" << std::endl;
     std::cout << "=================================" << std::endl;
@@ -103,7 +283,7 @@ int main() {
                 std::cin >> amount;
                 
                 auto transaction = std::make_shared<Transaction>(sender, receiver, amount);
-                transaction->signTransaction(sender + "_private_key"); // Simplified signing
+                transaction->signTransaction(sender + "_private_key");
                 blockchain.addTransaction(transaction);
                 break;
             }
@@ -164,8 +344,49 @@ int main() {
                 break;
             }
             
-            case 9: {
+            // P2P Network options
+            case 10: {
+                // Start P2P Node
+                startP2PNode(blockchain);
+                break;
+            }
+            
+            case 11: {
+                // Stop P2P Node
+                stopP2PNode();
+                break;
+            }
+            
+            case 12: {
+                // Connect to Peer
+                connectToPeer();
+                break;
+            }
+            
+            case 13: {
+                // Show Connected Peers
+                showConnectedPeers();
+                break;
+            }
+            
+            case 14: {
+                // Request Blockchain Sync
+                requestSync();
+                break;
+            }
+            
+            case 15: {
+                // P2P Node Status
+                showP2PStatus();
+                break;
+            }
+            
+            case 0: {
                 // Exit
+                if (p2pNode && p2pNode->isRunning()) {
+                    std::cout << "Stopping P2P node..." << std::endl;
+                    p2pNode->stop();
+                }
                 std::cout << "Goodbye!" << std::endl;
                 return 0;
             }

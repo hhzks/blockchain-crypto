@@ -24,12 +24,19 @@ namespace ECCrypto {
     
     constexpr size_t PRIVATE_KEY_SIZE = 32;
     constexpr size_t PUBLIC_KEY_SIZE = 33;  // Compressed public key
+    constexpr size_t UNCOMPRESSED_PUBLIC_KEY_SIZE = 65;  // Uncompressed public key (04 prefix + x + y)
     constexpr size_t SIGNATURE_SIZE = 64;   // r + s values
     constexpr size_t HASH_SIZE = 32;        // SHA-256 hash size
+    
+    // Compression prefix bytes
+    constexpr uint8_t COMPRESSED_EVEN_PREFIX = 0x02;  // y is even
+    constexpr uint8_t COMPRESSED_ODD_PREFIX = 0x03;   // y is odd
+    constexpr uint8_t UNCOMPRESSED_PREFIX = 0x04;     // uncompressed format
     
     using Hash = std::array<uint8_t, HASH_SIZE>;
     using Signature = std::array<uint8_t, SIGNATURE_SIZE>;
     using PublicKey = std::array<uint8_t, PUBLIC_KEY_SIZE>;
+    using UncompressedPublicKey = std::array<uint8_t, UNCOMPRESSED_PUBLIC_KEY_SIZE>;
     using PrivateKey = std::array<uint8_t, PRIVATE_KEY_SIZE>;
 
     class ECPoint{
@@ -42,6 +49,7 @@ namespace ECCrypto {
 
             BigInt getX() const;
             BigInt getY() const;
+            bool isPointAtInfinity() const;
 
             ECPoint pointAtInfinity() const;
             ECPoint doubledPoint() const;
@@ -97,12 +105,28 @@ namespace ECCrypto {
     Signature signHash(const Hash& hash, const BigInt& privateKey);
     
     /**
+     * Sign a hash using Schnorr with secp256k1 (byte array version)
+     * @param hash The 32-byte hash to sign
+     * @param privateKey The private key bytes to sign with
+     * @return Signature bytes, or empty array if signing failed
+     */
+    Signature signHash(const Hash& hash, const PrivateKey& privateKey);
+    
+    /**
      * Sign a message string (will be hashed with SHA-256 first)
      * @param message The message to sign
      * @param privateKey The private key to sign with
      * @return Signature bytes, or empty array if signing failed
      */
     Signature signMessage(const std::string& message, const BigInt& privateKey);
+    
+    /**
+     * Sign a message string (byte array version)
+     * @param message The message to sign
+     * @param privateKey The private key bytes to sign with
+     * @return Signature bytes, or empty array if signing failed
+     */
+    Signature signMessage(const std::string& message, const PrivateKey& privateKey);
     
     /**
      * Verify a Schnorr signature
@@ -194,4 +218,89 @@ namespace ECCrypto {
      * @return True if all tests pass, false otherwise
      */
     bool testECCImplementation();
+    
+    // =====================================================
+    // Public Key Compression Functions
+    // =====================================================
+    
+    /**
+     * Compress an ECPoint to 33-byte compressed public key format
+     * @param point The elliptic curve point to compress
+     * @return 33-byte compressed public key (02/03 prefix + 32-byte x-coordinate)
+     */
+    PublicKey compressPublicKey(const ECPoint& point);
+    
+    /**
+     * Decompress a 33-byte compressed public key back to ECPoint
+     * @param compressedKey The compressed public key
+     * @return ECPoint, or point at infinity if decompression fails
+     */
+    ECPoint decompressPublicKey(const PublicKey& compressedKey);
+    
+    /**
+     * Convert ECPoint to uncompressed public key format (65 bytes)
+     * @param point The elliptic curve point
+     * @return 65-byte uncompressed public key (04 prefix + x + y)
+     */
+    UncompressedPublicKey toUncompressedPublicKey(const ECPoint& point);
+    
+    /**
+     * Convert uncompressed public key to ECPoint
+     * @param uncompressedKey The 65-byte uncompressed public key
+     * @return ECPoint, or point at infinity if parsing fails
+     */
+    ECPoint fromUncompressedPublicKey(const UncompressedPublicKey& uncompressedKey);
+    
+    /**
+     * Compress an uncompressed public key to compressed format
+     * @param uncompressedKey The 65-byte uncompressed public key
+     * @return 33-byte compressed public key
+     */
+    PublicKey compressPublicKey(const UncompressedPublicKey& uncompressedKey);
+    
+    /**
+     * Decompress a compressed public key to uncompressed format
+     * @param compressedKey The 33-byte compressed public key
+     * @return 65-byte uncompressed public key
+     */
+    UncompressedPublicKey decompressToUncompressed(const PublicKey& compressedKey);
+    
+    /**
+     * Check if a public key is in compressed format
+     * @param data Pointer to public key data
+     * @param size Size of the data
+     * @return True if compressed format (33 bytes, 02/03 prefix)
+     */
+    bool isCompressedPublicKey(const uint8_t* data, size_t size);
+    
+    /**
+     * Check if a public key is in uncompressed format
+     * @param data Pointer to public key data
+     * @param size Size of the data
+     * @return True if uncompressed format (65 bytes, 04 prefix)
+     */
+    bool isUncompressedPublicKey(const uint8_t* data, size_t size);
+    
+    /**
+     * Convert BigInt to 32-byte big-endian byte array
+     * @param num The BigInt to convert
+     * @param output 32-byte output buffer
+     */
+    void bigIntToBytes32(const BigInt& num, uint8_t* output);
+    
+    /**
+     * Convert 32-byte big-endian byte array to BigInt
+     * @param data The 32-byte input
+     * @return BigInt representation
+     */
+    BigInt bytes32ToBigInt(const uint8_t* data);
+    
+    /**
+     * Calculate modular square root using Tonelli-Shanks algorithm
+     * Used for public key decompression (finding y from x)
+     * @param n The value to find square root of
+     * @param p The prime modulus
+     * @return Square root if exists, or 0 if no square root exists
+     */
+    BigInt modSqrt(const BigInt& n, const BigInt& p);
 }

@@ -1,9 +1,9 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.25)
 set(CMAKE_CXX_COMPILER "C:/dev/w64devkit/bin/g++.exe")
 set(CMAKE_C_COMPILER "C:/dev/w64devkit/bin/gcc.exe")
 project(Blockchain)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(SOURCES
@@ -15,6 +15,7 @@ set(SOURCES
     src/sha.cpp
     src/ECCrypto.cpp
     src/Wallet.cpp
+    src/P2PNode.cpp
 )
 
 set(HEADERS
@@ -26,28 +27,23 @@ set(HEADERS
     src/include/ECCrypto.h
     src/include/Wallet.h
     src/include/bigint.h
+    src/include/P2PMessage.h
+    src/include/P2PNode.h
 )
 
 # Main blockchain executable
 add_executable(blockchain ${SOURCES} ${HEADERS})
 
-# Wallet test executable
-add_executable(test_ECC 
-    src/Transaction.cpp
-    src/utils.cpp
-    src/sha.cpp
-    src/ECCrypto.cpp
-    src/Wallet.cpp
-    ${HEADERS}
-)
+# Link WinSock2 on Windows
+if(WIN32)
+    target_link_libraries(blockchain ws2_32)
+endif()
 
 # Compiler flags
 if(MSVC)
     target_compile_options(blockchain PRIVATE /W4)
-    target_compile_options(test_ECC PRIVATE /W4)
 else()
     target_compile_options(blockchain PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(test_ECC PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 # Print debug information
