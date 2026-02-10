@@ -4,11 +4,11 @@
 #include <iostream>
 #include <chrono>
 
-Block::Block(int idx, const std::string& prevHash, int blockDifficulty) 
-    : index(idx), timestamp(utils::getCurrentTimestamp()), previousHash(prevHash), 
-      difficulty(blockDifficulty), nonce(0) {
+Block::Block(int idx, const std::string& prev_hash, int block_difficulty) 
+    : index(idx), timestamp(utils::getCurrentTimestamp()), previous_hash(prev_hash), 
+      difficulty(block_difficulty), nonce(0) {
     hash = "";
-    merkleRoot = "";
+    merkle_root = "";
     calculateMerkleRoot();
 }
 
@@ -21,7 +21,7 @@ void Block::addTransaction(std::shared_ptr<Transaction> transaction) {
 
 std::string Block::calculateHash() const {
     std::stringstream ss;
-    ss << index << timestamp << previousHash << merkleRoot << difficulty << nonce;
+    ss << index << timestamp << previous_hash << merkle_root << difficulty << nonce;
     
     // Include all transaction hashes
     for (const auto& transaction : transactions) {
@@ -62,16 +62,16 @@ void Block::mineBlock() {
 
 void Block::calculateMerkleRoot() {
     if (transactions.empty()) {
-        merkleRoot = utils::sha256("");
+        merkle_root = utils::sha256("");
         return;
     }
     
-    std::vector<std::string> transactionHashes;
-    for (const auto& transaction : transactions) {
-        transactionHashes.push_back(transaction->calculateHash());
+    std::vector<std::string> tx_hashes;
+    for (const auto& tx : transactions) {
+        tx_hashes.push_back(tx->calculateHash());
     }
     
-    merkleRoot = utils::calculateMerkleRoot(transactionHashes);
+    merkle_root = utils::calculateMerkleRoot(tx_hashes);
 }
 
 bool Block::isValid() const {
@@ -95,14 +95,13 @@ bool Block::isValid() const {
         }
     }
     
-    // Verify merkle root
-    std::vector<std::string> transactionHashes;
-    for (const auto& transaction : transactions) {
-        transactionHashes.push_back(transaction->calculateHash());
+    std::vector<std::string> tx_hashes;
+    for (const auto& tx : transactions) {
+        tx_hashes.push_back(tx->calculateHash());
     }
     
-    std::string calculatedMerkleRoot = utils::calculateMerkleRoot(transactionHashes);
-    if (merkleRoot != calculatedMerkleRoot) {
+    std::string computed_root = utils::calculateMerkleRoot(tx_hashes);
+    if (merkle_root != computed_root) {
         std::cout << "Invalid block: Merkle root mismatch" << std::endl;
         return false;
     }
@@ -130,8 +129,8 @@ std::string Block::toString() const {
     std::stringstream ss;
     ss << "Block " << index << " {" << std::endl;
     ss << "  Timestamp: " << timestamp << std::endl;
-    ss << "  Previous Hash: " << previousHash << std::endl;
-    ss << "  Merkle Root: " << merkleRoot << std::endl;
+    ss << "  Previous Hash: " << previous_hash << std::endl;
+    ss << "  Merkle Root: " << merkle_root << std::endl;
     ss << "  Hash: " << hash << std::endl;
     ss << "  Nonce: " << nonce << std::endl;
     ss << "  Transactions (" << transactions.size() << "):" << std::endl;
