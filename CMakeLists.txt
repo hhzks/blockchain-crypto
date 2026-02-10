@@ -31,22 +31,18 @@ set(HEADERS
     src/include/P2PNode.h
 )
 
-# Main blockchain executable
 add_executable(blockchain ${SOURCES} ${HEADERS})
 
-# Link WinSock2 on Windows
 if(WIN32)
     target_link_libraries(blockchain ws2_32)
 endif()
 
-# Compiler flags
 if(MSVC)
     target_compile_options(blockchain PRIVATE /W4)
 else()
     target_compile_options(blockchain PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# Print debug information
 message(STATUS "Source files: ${SOURCES}")
 message(STATUS "Header files: ${HEADERS}")
 

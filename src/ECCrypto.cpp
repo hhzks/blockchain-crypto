@@ -18,9 +18,9 @@ BigInt ECPoint::getY() const{
     return y;
 }
 
-ECPoint ECPoint::pointAtInfinity() const{
-    ECPoint result = ECPoint {0, 0, p, a, b};
-    result.isInfinity = true;
+ECPoint ECPoint::pointAtInfinity() const {
+    ECPoint result = ECPoint{0, 0, p, a, b};
+    result.is_infinity = true;
     return result;
 }
 
@@ -35,10 +35,10 @@ ECPoint ECPoint::doubledPoint() const{
     return ECPoint {new_x, new_y, p, a, b};
 }
 
-ECPoint ECPoint::operator+(const ECPoint& other) const{
-    if (isInfinity && other.isInfinity){return pointAtInfinity();}
-    if (!isInfinity && other.isInfinity) {return *this;}
-    if (isInfinity && !other.isInfinity) {return other;}
+ECPoint ECPoint::operator+(const ECPoint& other) const {
+    if (is_infinity && other.is_infinity) { return pointAtInfinity(); }
+    if (!is_infinity && other.is_infinity) { return *this; }
+    if (is_infinity && !other.is_infinity) { return other; }
 
     if (x == other.x && y == other.y){
         return doubledPoint();
@@ -112,56 +112,52 @@ std::unique_ptr<ECCrypto::KeyPair> generateKeyPair(){
     return keyPairFromPrivateKey(private_key);
 }
 
-std::unique_ptr<KeyPair> keyPairFromPrivateKey(const BigInt& private_key){
-    return std::make_unique<KeyPair>(private_key, G * (private_key % ECCrypto::secp256k1::N));
+std::unique_ptr<KeyPair> keyPairFromPrivateKey(const BigInt& priv_key) {
+    return std::make_unique<KeyPair>(priv_key, G * (priv_key % ECCrypto::secp256k1::N));
 }
 
-std::unique_ptr<KeyPair> keyPairFromPrivateKeyHex(const std::string& private_key_hex){
-    BigInt private_key {BigInt(private_key_hex,16)};
-    return std::make_unique<KeyPair>(private_key, G * (private_key % ECCrypto::secp256k1::N));
+std::unique_ptr<KeyPair> keyPairFromPrivateKeyHex(const std::string& priv_key_hex) {
+    BigInt priv_key{BigInt(priv_key_hex, 16)};
+    return std::make_unique<KeyPair>(priv_key, G * (priv_key % ECCrypto::secp256k1::N));
 }
 
 bool ECPoint::isPointAtInfinity() const {
-    return isInfinity;
+    return is_infinity;
 }
 
 // =====================================================
 // KeyPair Constructors
 // =====================================================
 
-KeyPair::KeyPair() : publicKey(G.pointAtInfinity()) {
-    privateKey = BigInt(0);
-    privateKeyHex = "";
-    publicKeyHex = "";
+KeyPair::KeyPair() : public_key(G.pointAtInfinity()) {
+    private_key = BigInt(0);
+    private_key_hex = "";
+    public_key_hex = "";
     address = "";
 }
 
-KeyPair::KeyPair(const BigInt& private_key, const ECPoint& public_key) 
-    : privateKey(private_key), publicKey(public_key) {
-    // Convert private key to hex
-    BigInt temp = private_key;
+KeyPair::KeyPair(const BigInt& priv_key, const ECPoint& pub_key) 
+    : private_key(priv_key), public_key(pub_key) {
+    BigInt temp = priv_key;
     if (temp < 0) temp = temp + secp256k1::N;
     
-    const char* hexChars = "0123456789abcdef";
-    privateKeyHex = "";
+    const char* hex_chars = "0123456789abcdef";
+    private_key_hex = "";
     if (temp == 0) {
-        privateKeyHex = "0";
+        private_key_hex = "0";
     } else {
         while (temp > 0) {
             BigInt remainder = temp % 16;
-            privateKeyHex = hexChars[remainder.to_int()] + privateKeyHex;
+            private_key_hex = hex_chars[remainder.to_int()] + private_key_hex;
             temp = temp / 16;
         }
     }
-    while (privateKeyHex.length() < 64) {
-        privateKeyHex = "0" + privateKeyHex;
+    while (private_key_hex.length() < 64) {
+        private_key_hex = "0" + private_key_hex;
     }
     
-    // Compress public key and convert to hex
-    PublicKey compressed = compressPublicKey(public_key);
-    publicKeyHex = bytesToHex(compressed.data(), compressed.size());
-    
-    // Derive address from public key
+    PublicKey compressed = compressPublicKey(pub_key);
+    public_key_hex = bytesToHex(compressed.data(), compressed.size());
     address = deriveAddress(compressed);
 }
 
@@ -355,78 +351,71 @@ bool verifyMessageSignature(const std::string& message, const Signature& signatu
 
 bool testECCImplementation() {
     std::cout << "=== ECC Implementation Test ===" << std::endl;
-    bool allPassed = true;
+    bool all_passed = true;
     
-    // Test 1: Key generation
     std::cout << "Test 1: Key generation... ";
-    auto keyPair = generateKeyPair();
-    if (keyPair && keyPair->privateKey > 0 && !keyPair->publicKey.isPointAtInfinity()) {
+    auto key_pair = generateKeyPair();
+    if (key_pair && key_pair->private_key > 0 && !key_pair->public_key.isPointAtInfinity()) {
         std::cout << "PASSED" << std::endl;
     } else {
         std::cout << "FAILED" << std::endl;
-        allPassed = false;
+        all_passed = false;
     }
     
-    // Test 2: Public key compression/decompression
     std::cout << "Test 2: Public key compression... ";
-    PublicKey compressed = compressPublicKey(keyPair->publicKey);
+    PublicKey compressed = compressPublicKey(key_pair->public_key);
     ECPoint decompressed = decompressPublicKey(compressed);
-    if (decompressed.getX() == keyPair->publicKey.getX() && 
-        decompressed.getY() == keyPair->publicKey.getY()) {
+    if (decompressed.getX() == key_pair->public_key.getX() && 
+        decompressed.getY() == key_pair->public_key.getY()) {
         std::cout << "PASSED" << std::endl;
     } else {
         std::cout << "FAILED" << std::endl;
-        allPassed = false;
+        all_passed = false;
     }
     
-    // Test 3: Sign and verify
     std::cout << "Test 3: Sign and verify... ";
-    std::string testMessage = "Hello, blockchain!";
-    Signature sig = signMessage(testMessage, keyPair->privateKey);
-    bool verified = verifyMessageSignature(testMessage, sig, compressed);
+    std::string test_msg = "Hello, blockchain!";
+    Signature sig = signMessage(test_msg, key_pair->private_key);
+    bool verified = verifyMessageSignature(test_msg, sig, compressed);
     if (verified) {
         std::cout << "PASSED" << std::endl;
     } else {
         std::cout << "FAILED" << std::endl;
-        allPassed = false;
+        all_passed = false;
     }
     
-    // Test 4: Invalid signature should fail
     std::cout << "Test 4: Invalid signature rejection... ";
-    Signature badSig = sig;
-    badSig[0] ^= 0xFF;  // Corrupt the signature
-    bool shouldFail = verifyMessageSignature(testMessage, badSig, compressed);
-    if (!shouldFail) {
+    Signature bad_sig = sig;
+    bad_sig[0] ^= 0xFF;
+    bool should_fail = verifyMessageSignature(test_msg, bad_sig, compressed);
+    if (!should_fail) {
         std::cout << "PASSED" << std::endl;
     } else {
         std::cout << "FAILED" << std::endl;
-        allPassed = false;
+        all_passed = false;
     }
     
-    // Test 5: Wrong message should fail
     std::cout << "Test 5: Wrong message rejection... ";
-    bool wrongMsg = verifyMessageSignature("Wrong message", sig, compressed);
-    if (!wrongMsg) {
+    bool wrong_msg = verifyMessageSignature("Wrong message", sig, compressed);
+    if (!wrong_msg) {
         std::cout << "PASSED" << std::endl;
     } else {
         std::cout << "FAILED" << std::endl;
-        allPassed = false;
+        all_passed = false;
     }
     
-    // Test 6: Point arithmetic (known values)
     std::cout << "Test 6: Generator point validity... ";
-    // G should be on the curve: y^2 = x^3 + 7 (mod p)
     BigInt y2 = (secp256k1::GY * secp256k1::GY) % secp256k1::P;
     BigInt x3_7 = (secp256k1::GX * secp256k1::GX * secp256k1::GX + secp256k1::B) % secp256k1::P;
     if (y2 == x3_7) {
         std::cout << "PASSED" << std::endl;
     } else {
         std::cout << "FAILED" << std::endl;
-        allPassed = false;
+        all_passed = false;
     }
     
-    std::cout << "=== All tests " << (allPassed ? "PASSED" : "FAILED") << " ===" << std::endl;
-    return allPassed;
+    std::cout << "=== All tests " << (all_passed ? "PASSED" : "FAILED") << " ===" << std::endl;
+    return all_passed;
 }
 
 // =====================================================

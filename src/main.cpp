@@ -10,7 +10,7 @@
 std::unique_ptr<p2p::P2PNode> p2pNode;
 
 void displayMenu() {
-    std::cout << "\n=== BLOCKCHAIN DEMO ===" << std::endl;
+    std::cout << "\n=== LOCAL BLOCKCHAIN ===" << std::endl;
     std::cout << "1.  Add Transaction" << std::endl;
     std::cout << "2.  Mine Block" << std::endl;
     std::cout << "3.  Check Balance" << std::endl;
@@ -18,68 +18,16 @@ void displayMenu() {
     std::cout << "5.  Validate Blockchain" << std::endl;
     std::cout << "6.  Save Blockchain" << std::endl;
     std::cout << "7.  Load Blockchain" << std::endl;
-    std::cout << "8.  Run Demo" << std::endl;
     std::cout << "--- P2P Network ---" << std::endl;
-    std::cout << "10. Start P2P Node" << std::endl;
-    std::cout << "11. Stop P2P Node" << std::endl;
-    std::cout << "12. Connect to Peer" << std::endl;
-    std::cout << "13. Show Connected Peers" << std::endl;
-    std::cout << "14. Request Blockchain Sync" << std::endl;
-    std::cout << "15. P2P Node Status" << std::endl;
+    std::cout << "8. Start P2P Node" << std::endl;
+    std::cout << "9. Stop P2P Node" << std::endl;
+    std::cout << "10. Connect to Peer" << std::endl;
+    std::cout << "11. Show Connected Peers" << std::endl;
+    std::cout << "12. Request Blockchain Sync" << std::endl;
+    std::cout << "13. P2P Node Status" << std::endl;
     std::cout << "-------------------" << std::endl;
     std::cout << "0.  Exit" << std::endl;
     std::cout << "Choice: ";
-}
-
-void runDemo(Blockchain& blockchain) {
-    std::cout << "\n=== RUNNING BLOCKCHAIN DEMO ===" << std::endl;
-    
-    // Create some sample transactions
-    std::cout << "Creating sample transactions..." << std::endl;
-    
-    auto tx1 = std::make_shared<Transaction>("Alice", "Bob", 50.0);
-    tx1->signTransaction("alice_private_key");
-    blockchain.addTransaction(tx1);
-    
-    auto tx2 = std::make_shared<Transaction>("Bob", "Charlie", 25.0);
-    tx2->signTransaction("bob_private_key");
-    blockchain.addTransaction(tx2);
-    
-    auto tx3 = std::make_shared<Transaction>("Charlie", "Alice", 10.0);
-    tx3->signTransaction("charlie_private_key");
-    blockchain.addTransaction(tx3);
-    
-    // Mine a block
-    std::cout << "\nMining block with transactions..." << std::endl;
-    blockchain.minePendingTransactions("Miner1");
-    
-    // Add more transactions
-    auto tx4 = std::make_shared<Transaction>("Alice", "David", 15.0);
-    tx4->signTransaction("alice_private_key");
-    blockchain.addTransaction(tx4);
-    
-    auto tx5 = std::make_shared<Transaction>("Bob", "Eve", 30.0);
-    tx5->signTransaction("bob_private_key");
-    blockchain.addTransaction(tx5);
-    
-    // Mine another block
-    std::cout << "\nMining second block..." << std::endl;
-    blockchain.minePendingTransactions("Miner2");
-    
-    // Display results
-    std::cout << "\n=== DEMO RESULTS ===" << std::endl;
-    std::cout << "Blockchain validation: " << (blockchain.isChainValid() ? "VALID" : "INVALID") << std::endl;
-    
-    std::cout << "\nAccount Balances:" << std::endl;
-    std::vector<std::string> accounts = {"Alice", "Bob", "Charlie", "David", "Eve", "Miner1", "Miner2"};
-    for (const auto& account : accounts) {
-        double balance = blockchain.getBalance(account);
-        if (balance != 0) {
-            std::cout << account << ": " << balance << std::endl;
-        }
-    }
-    
-    std::cout << "\nDemo completed!" << std::endl;
 }
 
 void setupP2PCallbacks(Blockchain& blockchain) {
@@ -134,29 +82,28 @@ void startP2PNode(Blockchain& blockchain) {
     }
     
     p2p::P2PConfig config;
-    config.listenPort = port;
-    config.maxPeers = 25;
-    config.minPeers = 3;
-    config.enableLogging = true;
+    config.listen_port = port;
+    config.max_peers = 25;
+    config.min_peers = 3;
+    config.enable_logging = true;
     
-    // Optional: Add seed nodes
     std::cout << "Add seed node? (y/n): ";
-    char addSeed;
-    std::cin >> addSeed;
+    char add_seed;
+    std::cin >> add_seed;
     
-    while (addSeed == 'y' || addSeed == 'Y') {
-        std::string seedIp;
-        uint16_t seedPort;
+    while (add_seed == 'y' || add_seed == 'Y') {
+        std::string seed_ip;
+        uint16_t seed_port;
         
         std::cout << "Enter seed node IP: ";
-        std::cin >> seedIp;
+        std::cin >> seed_ip;
         std::cout << "Enter seed node port: ";
-        std::cin >> seedPort;
+        std::cin >> seed_port;
         
-        config.seedNodes.push_back(seedIp + ":" + std::to_string(seedPort));
+        config.seed_nodes.push_back(seed_ip + ":" + std::to_string(seed_port));
         
         std::cout << "Add another seed node? (y/n): ";
-        std::cin >> addSeed;
+        std::cin >> add_seed;
     }
     
     p2pNode = std::make_unique<p2p::P2PNode>(&blockchain, config);
@@ -218,8 +165,8 @@ void showConnectedPeers() {
     } else {
         for (const auto& peer : peers) {
             std::cout << "  - " << peer.ip << ":" << peer.port;
-            if (!peer.nodeId.empty()) {
-                std::cout << " (ID: " << peer.nodeId.substr(0, 8) << "...)";
+            if (!peer.node_id.empty()) {
+                std::cout << " (ID: " << peer.node_id.substr(0, 8) << "...)";
             }
             std::cout << std::endl;
         }
@@ -254,7 +201,6 @@ int main() {
     std::cout << "Blockchain Implementation in C++" << std::endl;
     std::cout << "=================================" << std::endl;
     
-    // Create blockchain
     Blockchain blockchain;
     
     int choice;
@@ -271,7 +217,6 @@ int main() {
 
         switch (choice) {
             case 1: {
-                // Add Transaction
                 std::string sender, receiver;
                 double amount;
                 
@@ -289,7 +234,6 @@ int main() {
             }
             
             case 2: {
-                // Mine Block
                 std::string minerAddress;
                 std::cout << "Enter miner address: ";
                 std::cin >> minerAddress;
@@ -298,7 +242,6 @@ int main() {
             }
             
             case 3: {
-                // Check Balance
                 std::string address;
                 std::cout << "Enter address to check: ";
                 std::cin >> address;
@@ -308,20 +251,17 @@ int main() {
             }
             
             case 4: {
-                // Display Blockchain
                 blockchain.printChain();
                 break;
             }
             
             case 5: {
-                // Validate Blockchain
                 bool isValid = blockchain.isChainValid();
                 std::cout << "Blockchain is " << (isValid ? "VALID" : "INVALID") << std::endl;
                 break;
             }
             
             case 6: {
-                // Save Blockchain
                 std::string filename;
                 std::cout << "Enter filename to save: ";
                 std::cin >> filename;
@@ -330,7 +270,6 @@ int main() {
             }
             
             case 7: {
-                // Load Blockchain
                 std::string filename;
                 std::cout << "Enter filename to load: ";
                 std::cin >> filename;
@@ -338,51 +277,38 @@ int main() {
                 break;
             }
             
-            case 8: {
-                // Run Demo
-                runDemo(blockchain);
-                break;
-            }
             
-            // P2P Network options
-            case 10: {
-                // Start P2P Node
+            case 8: {
                 startP2PNode(blockchain);
                 break;
             }
             
-            case 11: {
-                // Stop P2P Node
+            case 9: {
                 stopP2PNode();
                 break;
             }
             
-            case 12: {
-                // Connect to Peer
+            case 10: {
                 connectToPeer();
                 break;
             }
             
-            case 13: {
-                // Show Connected Peers
+            case 11: {
                 showConnectedPeers();
                 break;
             }
             
-            case 14: {
-                // Request Blockchain Sync
+            case 12: {
                 requestSync();
                 break;
             }
             
-            case 15: {
-                // P2P Node Status
+            case 13: {
                 showP2PStatus();
                 break;
             }
             
             case 0: {
-                // Exit
                 if (p2pNode && p2pNode->isRunning()) {
                     std::cout << "Stopping P2P node..." << std::endl;
                     p2pNode->stop();

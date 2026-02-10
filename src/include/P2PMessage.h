@@ -10,46 +10,35 @@
 
 namespace p2p {
 
-/**
- * Message types for P2P protocol
- */
 enum class MessageType : uint8_t {
-    // Handshake messages
     HANDSHAKE = 0x00,
     HANDSHAKE_ACK = 0x01,
     
-    // Peer discovery
     PING = 0x10,
     PONG = 0x11,
     GET_PEERS = 0x12,
     PEERS = 0x13,
     
-    // Blockchain sync
     GET_BLOCKS = 0x20,
     BLOCKS = 0x21,
     GET_BLOCK_HEIGHT = 0x22,
     BLOCK_HEIGHT = 0x23,
     
-    // Propagation
     NEW_BLOCK = 0x30,
     NEW_TRANSACTION = 0x31,
     
-    // Status
     ERROR_MSG = 0xFE,
     DISCONNECT = 0xFF
 };
 
-/**
- * Peer information structure
- */
 struct PeerInfo {
     std::string ip;
     uint16_t port;
-    std::string nodeId;
-    int64_t lastSeen;
+    std::string node_id;
+    int64_t last_seen;
     
     std::string serialize() const {
-        return ip + ":" + std::to_string(port) + ":" + nodeId + ":" + std::to_string(lastSeen);
+        return ip + ":" + std::to_string(port) + ":" + node_id + ":" + std::to_string(last_seen);
     }
     
     static PeerInfo deserialize(const std::string& data) {
@@ -60,33 +49,30 @@ struct PeerInfo {
         std::getline(iss, info.ip, ':');
         std::getline(iss, token, ':');
         info.port = static_cast<uint16_t>(std::stoi(token));
-        std::getline(iss, info.nodeId, ':');
+        std::getline(iss, info.node_id, ':');
         std::getline(iss, token, ':');
-        info.lastSeen = std::stoll(token);
+        info.last_seen = std::stoll(token);
         
         return info;
     }
 };
 
-/**
- * P2P Network Message
- */
 class Message {
 private:
     MessageType type;
     std::string payload;
-    std::string senderId;
+    std::string sender_id;
     int64_t timestamp;
     
 public:
     static constexpr uint32_t MAGIC_NUMBER = 0x424C4B43; // "BLKC"
-    static constexpr size_t HEADER_SIZE = 17; // magic(4) + type(1) + length(4) + timestamp(8)
-    static constexpr size_t MAX_PAYLOAD_SIZE = 10 * 1024 * 1024; // 10MB max
+    static constexpr size_t HEADER_SIZE = 17;
+    static constexpr size_t MAX_PAYLOAD_SIZE = 10 * 1024 * 1024;
     
     Message() : type(MessageType::PING), timestamp(0) {}
     
     Message(MessageType t, const std::string& data = "", const std::string& sender = "")
-        : type(t), payload(data), senderId(sender) {
+        : type(t), payload(data), sender_id(sender) {
         timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()
         ).count();
@@ -94,16 +80,13 @@ public:
     
     MessageType getType() const { return type; }
     const std::string& getPayload() const { return payload; }
-    const std::string& getSenderId() const { return senderId; }
+    const std::string& getSenderId() const { return sender_id; }
     int64_t getTimestamp() const { return timestamp; }
     
     void setType(MessageType t) { type = t; }
     void setPayload(const std::string& data) { payload = data; }
-    void setSenderId(const std::string& id) { senderId = id; }
+    void setSenderId(const std::string& id) { sender_id = id; }
     
-    /**
-     * Serialize message to bytes for network transmission
-     */
     std::vector<uint8_t> serialize() const {
         std::vector<uint8_t> result;
         
@@ -136,9 +119,6 @@ public:
         return result;
     }
     
-    /**
-     * Deserialize message from bytes
-     */
     static Message deserialize(const std::vector<uint8_t>& data) {
         Message msg;
         
@@ -176,102 +156,63 @@ public:
         return msg;
     }
     
-    /**
-     * Create handshake message
-     */
-    static Message createHandshake(const std::string& nodeId, uint16_t port, int64_t blockHeight) {
+    static Message createHandshake(const std::string& node_id, uint16_t port, int64_t block_height) {
         std::ostringstream oss;
-        oss << nodeId << "|" << port << "|" << blockHeight << "|1.0.0";
+        oss << node_id << "|" << port << "|" << block_height << "|1.0.0";
         return Message(MessageType::HANDSHAKE, oss.str());
     }
     
-    /**
-     * Create ping message
-     */
-    static Message createPing(const std::string& nodeId) {
-        return Message(MessageType::PING, nodeId);
+    static Message createPing(const std::string& node_id) {
+        return Message(MessageType::PING, node_id);
     }
     
-    /**
-     * Create pong message
-     */
-    static Message createPong(const std::string& nodeId) {
-        return Message(MessageType::PONG, nodeId);
+    static Message createPong(const std::string& node_id) {
+        return Message(MessageType::PONG, node_id);
     }
     
-    /**
-     * Create get_peers request
-     */
     static Message createGetPeers() {
         return Message(MessageType::GET_PEERS, "");
     }
     
-    /**
-     * Create peers response
-     */
-    static Message createPeers(const std::vector<PeerInfo>& peers) {
+    static Message createPeers(const std::vector<PeerInfo>& peers_list) {
         std::ostringstream oss;
-        for (size_t i = 0; i < peers.size(); ++i) {
+        for (size_t i = 0; i < peers_list.size(); ++i) {
             if (i > 0) oss << "\n";
-            oss << peers[i].serialize();
+            oss << peers_list[i].serialize();
         }
         return Message(MessageType::PEERS, oss.str());
     }
     
-    /**
-     * Create get_blocks request (from startHeight to endHeight)
-     */
-    static Message createGetBlocks(int64_t startHeight, int64_t endHeight = -1) {
+    static Message createGetBlocks(int64_t start_height, int64_t end_height = -1) {
         std::ostringstream oss;
-        oss << startHeight << "|" << endHeight;
+        oss << start_height << "|" << end_height;
         return Message(MessageType::GET_BLOCKS, oss.str());
     }
     
-    /**
-     * Create block height request
-     */
     static Message createGetBlockHeight() {
         return Message(MessageType::GET_BLOCK_HEIGHT, "");
     }
     
-    /**
-     * Create block height response
-     */
     static Message createBlockHeight(int64_t height) {
         return Message(MessageType::BLOCK_HEIGHT, std::to_string(height));
     }
     
-    /**
-     * Create new block broadcast
-     */
-    static Message createNewBlock(const std::string& serializedBlock) {
-        return Message(MessageType::NEW_BLOCK, serializedBlock);
+    static Message createNewBlock(const std::string& serialized_block) {
+        return Message(MessageType::NEW_BLOCK, serialized_block);
     }
     
-    /**
-     * Create new transaction broadcast
-     */
-    static Message createNewTransaction(const std::string& serializedTx) {
-        return Message(MessageType::NEW_TRANSACTION, serializedTx);
+    static Message createNewTransaction(const std::string& serialized_tx) {
+        return Message(MessageType::NEW_TRANSACTION, serialized_tx);
     }
     
-    /**
-     * Create error message
-     */
-    static Message createError(const std::string& errorMsg) {
-        return Message(MessageType::ERROR_MSG, errorMsg);
+    static Message createError(const std::string& error_msg) {
+        return Message(MessageType::ERROR_MSG, error_msg);
     }
     
-    /**
-     * Create disconnect message
-     */
     static Message createDisconnect(const std::string& reason = "") {
         return Message(MessageType::DISCONNECT, reason);
     }
     
-    /**
-     * Get message type as string (for logging)
-     */
     static std::string typeToString(MessageType t) {
         switch (t) {
             case MessageType::HANDSHAKE: return "HANDSHAKE";
@@ -293,18 +234,11 @@ public:
     }
 };
 
-/**
- * Block serialization helper for network transmission
- */
 class BlockSerializer {
 public:
-    /**
-     * Serialize a block to string format
-     */
     static std::string serialize(const Block& block) {
         std::ostringstream oss;
         
-        // Block header
         oss << block.getIndex() << "|"
             << block.getTimestamp() << "|"
             << block.getPreviousHash() << "|"
@@ -313,11 +247,9 @@ public:
             << block.getDifficulty() << "|"
             << block.getNonce() << "|";
         
-        // Transaction count
         const auto& txs = block.getTransactions();
         oss << txs.size();
         
-        // Transactions
         for (const auto& tx : txs) {
             oss << "|" << tx->getSender()
                 << "," << tx->getReceiver()
@@ -329,50 +261,43 @@ public:
         return oss.str();
     }
     
-    /**
-     * Deserialize a block from string format
-     */
     static std::shared_ptr<Block> deserialize(const std::string& data) {
         std::istringstream iss(data);
         std::string token;
         
-        // Block header fields
         int index;
         long long timestamp;
-        std::string prevHash, hash, merkleRoot;
+        std::string prev_hash, hash, merkle_root;
         int difficulty, nonce;
-        size_t txCount;
+        size_t tx_count;
         
         std::getline(iss, token, '|'); index = std::stoi(token);
         std::getline(iss, token, '|'); timestamp = std::stoll(token);
-        std::getline(iss, prevHash, '|');
+        std::getline(iss, prev_hash, '|');
         std::getline(iss, hash, '|');
-        std::getline(iss, merkleRoot, '|');
+        std::getline(iss, merkle_root, '|');
         std::getline(iss, token, '|'); difficulty = std::stoi(token);
         std::getline(iss, token, '|'); nonce = std::stoi(token);
-        std::getline(iss, token, '|'); txCount = std::stoull(token);
+        std::getline(iss, token, '|'); tx_count = std::stoull(token);
         
-        // Create block
-        auto block = std::make_shared<Block>(index, prevHash, difficulty);
+        auto block = std::make_shared<Block>(index, prev_hash, difficulty);
         
-        // Parse transactions
-        for (size_t i = 0; i < txCount; ++i) {
-            std::string txData;
-            std::getline(iss, txData, '|');
+        for (size_t i = 0; i < tx_count; ++i) {
+            std::string tx_data;
+            std::getline(iss, tx_data, '|');
             
-            std::istringstream txStream(txData);
+            std::istringstream tx_stream(tx_data);
             std::string sender, receiver, sig;
             double amount;
-            long long txTimestamp;
+            long long tx_timestamp;
             
-            std::getline(txStream, sender, ',');
-            std::getline(txStream, receiver, ',');
-            std::getline(txStream, token, ','); amount = std::stod(token);
-            std::getline(txStream, token, ','); txTimestamp = std::stoll(token);
-            std::getline(txStream, sig, ',');
+            std::getline(tx_stream, sender, ',');
+            std::getline(tx_stream, receiver, ',');
+            std::getline(tx_stream, token, ','); amount = std::stod(token);
+            std::getline(tx_stream, token, ','); tx_timestamp = std::stoll(token);
+            std::getline(tx_stream, sig, ',');
             
             auto tx = std::make_shared<Transaction>(sender, receiver, amount);
-            // Note: signature would need to be set through a setter method
             block->addTransaction(tx);
         }
         
@@ -380,9 +305,6 @@ public:
     }
 };
 
-/**
- * Transaction serialization helper
- */
 class TransactionSerializer {
 public:
     static std::string serialize(const Transaction& tx) {
@@ -408,7 +330,6 @@ public:
         std::getline(iss, sig, '|');
         
         auto tx = std::make_shared<Transaction>(sender, receiver, amount);
-        // Signature would need to be restored
         return tx;
     }
 };

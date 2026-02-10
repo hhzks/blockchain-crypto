@@ -16,22 +16,16 @@ std::string Transaction::calculateHash() const {
     return utils::sha256(ss.str());
 }
 
-bool Transaction::signTransaction(const ECCrypto::PrivateKey& privateKey) {
-    if (!ECCrypto::isValidPrivateKey(privateKey)) {
+bool Transaction::signTransaction(const ECCrypto::PrivateKey& private_key) {
+    if (!ECCrypto::isValidPrivateKey(private_key)) {
         std::cout << "Invalid private key for transaction signing" << std::endl;
         return false;
     }
     
     try {
-        // Get the transaction data to sign
-        std::string txData = getTransactionData();
-        
-        // Sign the transaction data
-        ECCrypto::Signature sig = ECCrypto::signMessage(txData, privateKey);
-        
-        // Convert signature to hex string
+        std::string tx_data = getTransactionData();
+        ECCrypto::Signature sig = ECCrypto::signMessage(tx_data, private_key);
         signature = ECCrypto::signatureToHex(sig);
-        
         std::cout << "Transaction signed successfully" << std::endl;
         return true;
         
@@ -41,39 +35,34 @@ bool Transaction::signTransaction(const ECCrypto::PrivateKey& privateKey) {
     }
 }
 
-bool Transaction::signTransaction(const std::string& privateKeyHex) {
-    if (privateKeyHex.length() != ECCrypto::PRIVATE_KEY_SIZE * 2) {
+bool Transaction::signTransaction(const std::string& private_key_hex) {
+    if (private_key_hex.length() != ECCrypto::PRIVATE_KEY_SIZE * 2) {
         std::cout << "Invalid private key hex length" << std::endl;
         return false;
     }
     
-    ECCrypto::PrivateKey privKey;
-    if (ECCrypto::hexToBytes(privateKeyHex, privKey.data(), ECCrypto::PRIVATE_KEY_SIZE) != ECCrypto::PRIVATE_KEY_SIZE) {
+    ECCrypto::PrivateKey priv_key;
+    if (ECCrypto::hexToBytes(private_key_hex, priv_key.data(), ECCrypto::PRIVATE_KEY_SIZE) != ECCrypto::PRIVATE_KEY_SIZE) {
         std::cout << "Failed to parse private key hex" << std::endl;
         return false;
     }
     
-    return signTransaction(privKey);
+    return signTransaction(priv_key);
 }
 
-bool Transaction::verifySignature(const ECCrypto::PublicKey& publicKey) const {
+bool Transaction::verifySignature(const ECCrypto::PublicKey& public_key) const {
     if (signature.empty()) {
         return false;
     }
     
-    if (!ECCrypto::isValidPublicKey(publicKey)) {
+    if (!ECCrypto::isValidPublicKey(public_key)) {
         return false;
     }
     
     try {
-        // Convert hex signature back to bytes
         ECCrypto::Signature sig = ECCrypto::signatureFromHex(signature);
-        
-        // Get the transaction data that was signed
-        std::string txData = getTransactionData();
-        
-        // Verify the signature
-        return ECCrypto::verifyMessageSignature(txData, sig, publicKey);
+        std::string tx_data = getTransactionData();
+        return ECCrypto::verifyMessageSignature(tx_data, sig, public_key);
         
     } catch (const std::exception& e) {
         std::cout << "Error verifying signature: " << e.what() << std::endl;
@@ -81,17 +70,17 @@ bool Transaction::verifySignature(const ECCrypto::PublicKey& publicKey) const {
     }
 }
 
-bool Transaction::verifySignature(const std::string& publicKeyHex) const {
-    if (publicKeyHex.length() != ECCrypto::PUBLIC_KEY_SIZE * 2) {
+bool Transaction::verifySignature(const std::string& public_key_hex) const {
+    if (public_key_hex.length() != ECCrypto::PUBLIC_KEY_SIZE * 2) {
         return false;
     }
     
-    ECCrypto::PublicKey pubKey;
-    if (ECCrypto::hexToBytes(publicKeyHex, pubKey.data(), ECCrypto::PUBLIC_KEY_SIZE) != ECCrypto::PUBLIC_KEY_SIZE) {
+    ECCrypto::PublicKey pub_key;
+    if (ECCrypto::hexToBytes(public_key_hex, pub_key.data(), ECCrypto::PUBLIC_KEY_SIZE) != ECCrypto::PUBLIC_KEY_SIZE) {
         return false;
     }
     
-    return verifySignature(pubKey);
+    return verifySignature(pub_key);
 }
 
 bool Transaction::verifySignatureByAddress(const std::string& address) const {

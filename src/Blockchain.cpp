@@ -4,21 +4,17 @@
 #include <fstream>
 #include <algorithm>
 
-Blockchain::Blockchain() : difficulty(4), miningReward(100.0) {
-    // Create and add genesis block
+Blockchain::Blockchain() : difficulty(4), mining_reward(100.0) {
     chain.push_back(createGenesisBlock());
 }
 
 std::shared_ptr<Block> Blockchain::createGenesisBlock() {
-    auto genesisBlock = std::make_shared<Block>(0, "0", INITIAL_DIFFICULTY);
-    
-    auto genesisTransaction = std::make_shared<Transaction>("system", "genesis", 0);
-    genesisBlock->addTransaction(genesisTransaction);
-    
-    genesisBlock->mineBlock();
-    
+    auto genesis = std::make_shared<Block>(0, "0", INITIAL_DIFFICULTY);
+    auto genesis_tx = std::make_shared<Transaction>("system", "genesis", 0);
+    genesis->addTransaction(genesis_tx);
+    genesis->mineBlock();
     std::cout << "Genesis block created!" << std::endl;
-    return genesisBlock;
+    return genesis;
 }
 
 std::shared_ptr<Block> Blockchain::getLatestBlock() const {
@@ -28,7 +24,6 @@ std::shared_ptr<Block> Blockchain::getLatestBlock() const {
 void Blockchain::addTransaction(std::shared_ptr<Transaction> transaction) {
     if (!transaction->isValid()) {
         std::cout << "Invalid transaction rejected!" << std::endl;
-
         return;
     }
     
@@ -38,96 +33,86 @@ void Blockchain::addTransaction(std::shared_ptr<Transaction> transaction) {
     }
     
     if (transaction->getSender() != "system") {
-        double senderBalance = getBalance(transaction->getSender());
-        if (senderBalance < transaction->getAmount()) {
+        double balance = getBalance(transaction->getSender());
+        if (balance < transaction->getAmount()) {
             std::cout << "Transaction rejected: Insufficient balance. Balance: " 
-                      << senderBalance << ", Required: " << transaction->getAmount() << std::endl;
+                      << balance << ", Required: " << transaction->getAmount() << std::endl;
             return;
         }
     }
     
-    pendingTransactions.push_back(transaction);
+    pending_transactions.push_back(transaction);
     std::cout << "Transaction added to pending pool" << std::endl;
 }
 
-void Blockchain::minePendingTransactions(const std::string& miningRewardAddress) {
-    if (pendingTransactions.empty()) {
+void Blockchain::minePendingTransactions(const std::string& reward_address) {
+    if (pending_transactions.empty()) {
         std::cout << "No pending transactions to mine!" << std::endl;
         return;
     }
     
-    // Calculate required difficulty based on network consensus
-    int requiredDifficulty = calculateRequiredDifficulty();
+    int required_difficulty = calculateRequiredDifficulty();
     
-    std::cout << "Starting to mine block with " << pendingTransactions.size() 
-              << " transactions at difficulty " << requiredDifficulty << "..." << std::endl;
+    std::cout << "Starting to mine block with " << pending_transactions.size() 
+              << " transactions at difficulty " << required_difficulty << "..." << std::endl;
     
-    auto newBlock = std::make_shared<Block>(
+    auto new_block = std::make_shared<Block>(
         static_cast<int>(chain.size()),
         getLatestBlock()->getHash(),
-        requiredDifficulty
+        required_difficulty
     );
     
-    for (auto& transaction : pendingTransactions) {
-        newBlock->addTransaction(transaction);
+    for (auto& tx : pending_transactions) {
+        new_block->addTransaction(tx);
     }
     
-    // Add mining reward transaction
-    auto rewardTransaction = std::make_shared<Transaction>("system", miningRewardAddress, miningReward);
-    newBlock->addTransaction(rewardTransaction);
+    auto reward_tx = std::make_shared<Transaction>("system", reward_address, mining_reward);
+    new_block->addTransaction(reward_tx);
     
-    // Mine the block
-    newBlock->mineBlock();
+    new_block->mineBlock();
     
-    // Validate difficulty before adding (security check)
-    if (!validateBlockDifficulty(newBlock)) {
+    if (!validateBlockDifficulty(new_block)) {
         std::cout << "CRITICAL ERROR: Mined block has incorrect difficulty!" << std::endl;
         return;
     }
     
-    // Add block to chain
-    chain.push_back(newBlock);
-    
-    // Clear pending transactions
-    pendingTransactions.clear();
-    
-    // Update balances
+    chain.push_back(new_block);
+    pending_transactions.clear();
     updateBalances();
     
     std::cout << "Block mined and added to blockchain!" << std::endl;
 }
 
-int Blockchain::calculateRequiredDifficulty() const{
+int Blockchain::calculateRequiredDifficulty() const {
     if (chain.size() < DIFFICULTY_ADJUSTMENT_INTERVAL) {
         return INITIAL_DIFFICULTY;
     }
     
-    size_t lastAdjustmentIndex = chain.size() - DIFFICULTY_ADJUSTMENT_INTERVAL;
-    auto lastAdjustmentBlock = chain[lastAdjustmentIndex];
-    auto latestBlock = chain.back();
+    size_t last_idx = chain.size() - DIFFICULTY_ADJUSTMENT_INTERVAL;
+    auto last_block = chain[last_idx];
+    auto latest = chain.back();
     
-    long long timeExpected = TARGET_BLOCK_TIME * DIFFICULTY_ADJUSTMENT_INTERVAL;
-    long long timeActual = latestBlock->getTimestamp() - lastAdjustmentBlock->getTimestamp();
+    long long expected = TARGET_BLOCK_TIME * DIFFICULTY_ADJUSTMENT_INTERVAL;
+    long long actual = latest->getTimestamp() - last_block->getTimestamp();
+    int current = latest->getDifficulty();
     
-    int currentDifficulty = latestBlock->getDifficulty();
-    
-    if (timeActual < timeExpected / 2) {
-        return currentDifficulty + 1;
-    } else if (timeActual > timeExpected * 2) {
-        return std::max(1, currentDifficulty - 1);
+    if (actual < expected / 2) {
+        return current + 1;
+    } else if (actual > expected * 2) {
+        return std::max(1, current - 1);
     }
     
-    return currentDifficulty;
+    return current;
 }
 
 bool Blockchain::validateBlockDifficulty(const std::shared_ptr<Block>& block) const {
-    int requiredDifficulty = calculateRequiredDifficultyAtHeight(block->getIndex());
-    int blockDifficulty = block->getDifficulty();
+    int required = calculateRequiredDifficultyAtHeight(block->getIndex());
+    int actual = block->getDifficulty();
     
-    if (blockDifficulty != requiredDifficulty) {
+    if (actual != required) {
         std::cout << "Block " << block->getIndex() 
-                  << " has incorrect difficulty: " << blockDifficulty 
-                  << " (required: " << requiredDifficulty << ")" << std::endl;
+                  << " has incorrect difficulty: " << actual 
+                  << " (required: " << required << ")" << std::endl;
         return false;
     }
     
@@ -197,18 +182,18 @@ void Blockchain::printChain() const {
     std::cout << "=== BLOCKCHAIN ===" << std::endl;
     std::cout << "Chain length: " << chain.size() << " blocks" << std::endl;
     std::cout << "Difficulty: " << difficulty << std::endl;
-    std::cout << "Mining reward: " << miningReward << std::endl;
-    std::cout << "Pending transactions: " << pendingTransactions.size() << std::endl;
+    std::cout << "Mining reward: " << mining_reward << std::endl;
+    std::cout << "Pending transactions: " << pending_transactions.size() << std::endl;
     std::cout << std::endl;
     
     for (const auto& block : chain) {
         std::cout << block->toString() << std::endl;
     }
     
-    if (!pendingTransactions.empty()) {
+    if (!pending_transactions.empty()) {
         std::cout << "=== PENDING TRANSACTIONS ===" << std::endl;
-        for (size_t i = 0; i < pendingTransactions.size(); i++) {
-            std::cout << (i + 1) << ". " << pendingTransactions[i]->toString() << std::endl;
+        for (size_t i = 0; i < pending_transactions.size(); i++) {
+            std::cout << (i + 1) << ". " << pending_transactions[i]->toString() << std::endl;
         }
     }
 }
@@ -220,9 +205,8 @@ bool Blockchain::saveToFile(const std::string& filename) const {
         return false;
     }
     
-    // Save blockchain metadata
     file << difficulty << std::endl;
-    file << miningReward << std::endl;
+    file << mining_reward << std::endl;
     file << chain.size() << std::endl;
     
     // Save each block
@@ -259,40 +243,36 @@ bool Blockchain::loadFromFile(const std::string& filename) {
         return false;
     }
     
-    // Clear current chain
     chain.clear();
-    pendingTransactions.clear();
+    pending_transactions.clear();
     
-    // Load blockchain metadata
-    file >> difficulty >> miningReward;
+    file >> difficulty >> mining_reward;
     
-    size_t chainSize;
-    file >> chainSize;
+    size_t chain_size;
+    file >> chain_size;
     
-    // Load each block
-    for (size_t i = 0; i < chainSize; i++) {
+    for (size_t i = 0; i < chain_size; i++) {
         int index;
         long long timestamp;
-        std::string prevHash, hash, merkleRoot;
-        int blockDifficulty, nonce;
+        std::string prev_hash, hash, merkle_root;
+        int block_difficulty, nonce;
         
-        file >> index >> timestamp >> prevHash >> hash >> merkleRoot >> blockDifficulty >> nonce;
+        file >> index >> timestamp >> prev_hash >> hash >> merkle_root >> block_difficulty >> nonce;
         
-        auto block = std::make_shared<Block>(index, prevHash, blockDifficulty);
+        auto block = std::make_shared<Block>(index, prev_hash, block_difficulty);
         
-        size_t txCount;
-        file >> txCount;
+        size_t tx_count;
+        file >> tx_count;
         
-        for (size_t j = 0; j < txCount; j++) {
+        for (size_t j = 0; j < tx_count; j++) {
             std::string sender, receiver, signature;
             double amount;
-            long long txTimestamp;
+            long long tx_timestamp;
             
-            file >> sender >> receiver >> amount >> txTimestamp >> signature;
+            file >> sender >> receiver >> amount >> tx_timestamp >> signature;
             
-            auto transaction = std::make_shared<Transaction>(sender, receiver, amount);
-            // Note: In a more complete implementation, we'd properly restore the timestamp and signature
-            block->addTransaction(transaction);
+            auto tx = std::make_shared<Transaction>(sender, receiver, amount);
+            block->addTransaction(tx);
         }
         
         chain.push_back(block);
@@ -319,21 +299,19 @@ void Blockchain::updateBalances() {
     }
 }
 
-bool Blockchain::transactionExists(const std::shared_ptr<Transaction>& transaction) const {
-    std::string txHash = transaction->calculateHash();
+bool Blockchain::transactionExists(const std::shared_ptr<Transaction>& tx) const {
+    std::string tx_hash = tx->calculateHash();
     
-    // Check in existing blocks
     for (const auto& block : chain) {
-        for (const auto& existingTx : block->getTransactions()) {
-            if (existingTx->calculateHash() == txHash) {
+        for (const auto& existing : block->getTransactions()) {
+            if (existing->calculateHash() == tx_hash) {
                 return true;
             }
         }
     }
     
-    // Check in pending transactions
-    for (const auto& pendingTx : pendingTransactions) {
-        if (pendingTx->calculateHash() == txHash) {
+    for (const auto& pending : pending_transactions) {
+        if (pending->calculateHash() == tx_hash) {
             return true;
         }
     }
