@@ -3,12 +3,11 @@
 #include "include/utils.h"
 #include "include/sha.h"
 #include "include/ECCrypto.h"
-#include <iostream>
+#include <format>
+#include <print>
 #include <fstream>
-#include <sstream>
 #include <random>
 #include <algorithm>
-#include <iomanip>
 
 namespace wallet {
 
@@ -16,19 +15,19 @@ std::string Wallet::generateNewAddress() {
     try {
         auto ecc_key_pair = ECCrypto::generateKeyPair();
         if (!ecc_key_pair) {
-            std::cerr << "Failed to generate ECC key pair" << std::endl;
+            std::println(stderr, "Failed to generate ECC key pair");
             return "";
         }
         
         auto kp = std::make_unique<KeyPair>();
         
         if (ECCrypto::hexToBytes(ecc_key_pair->private_key_hex, kp->private_key.data(), ECCrypto::PRIVATE_KEY_SIZE) != ECCrypto::PRIVATE_KEY_SIZE) {
-            std::cerr << "Failed to convert private key to bytes" << std::endl;
+            std::println(stderr, "Failed to convert private key to bytes");
             return "";
         }
         
         if (ECCrypto::hexToBytes(ecc_key_pair->public_key_hex, kp->public_key.data(), ECCrypto::PUBLIC_KEY_SIZE) != ECCrypto::PUBLIC_KEY_SIZE) {
-            std::cerr << "Failed to convert public key to bytes" << std::endl;
+            std::println(stderr, "Failed to convert public key to bytes");
             return "";
         }
         
@@ -44,7 +43,7 @@ std::string Wallet::generateNewAddress() {
         return address;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error generating new address: " << e.what() << std::endl;
+        std::println(stderr, "Error generating new address: {}", e.what());
         return "";
     }
 }
@@ -53,7 +52,7 @@ bool Wallet::importKeyPair(const std::string& priv_key_hex, const std::string& p
     try {
         if (priv_key_hex.length() != ECCrypto::PRIVATE_KEY_SIZE * 2 || 
             pub_key_hex.length() != ECCrypto::PUBLIC_KEY_SIZE * 2) {
-            std::cerr << "Invalid key length" << std::endl;
+            std::println(stderr, "Invalid key length");
             return false;
         }
         
@@ -62,12 +61,12 @@ bool Wallet::importKeyPair(const std::string& priv_key_hex, const std::string& p
         
         if (ECCrypto::hexToBytes(priv_key_hex, priv_key.data(), ECCrypto::PRIVATE_KEY_SIZE) != ECCrypto::PRIVATE_KEY_SIZE ||
             ECCrypto::hexToBytes(pub_key_hex, pub_key.data(), ECCrypto::PUBLIC_KEY_SIZE) != ECCrypto::PUBLIC_KEY_SIZE) {
-            std::cerr << "Failed to convert hex keys to bytes" << std::endl;
+            std::println(stderr, "Failed to convert hex keys to bytes");
             return false;
         }
         
         if (!ECCrypto::isValidPrivateKey(priv_key) || !ECCrypto::isValidPublicKey(pub_key)) {
-            std::cerr << "Invalid key pair" << std::endl;
+            std::println(stderr, "Invalid key pair");
             return false;
         }
         
@@ -87,7 +86,7 @@ bool Wallet::importKeyPair(const std::string& priv_key_hex, const std::string& p
         return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error importing key pair: " << e.what() << std::endl;
+        std::println(stderr, "Error importing key pair: {}", e.what());
         return false;
     }
 }
@@ -96,19 +95,19 @@ bool Wallet::importPrivateKey(const std::string& priv_key_hex) {
     try {
         auto ecc_key_pair = ECCrypto::keyPairFromPrivateKeyHex(priv_key_hex);
         if (!ecc_key_pair) {
-            std::cerr << "Failed to generate key pair from private key" << std::endl;
+            std::println(stderr, "Failed to generate key pair from private key");
             return false;
         }
         
         auto kp = std::make_unique<KeyPair>();
         
         if (ECCrypto::hexToBytes(ecc_key_pair->private_key_hex, kp->private_key.data(), ECCrypto::PRIVATE_KEY_SIZE) != ECCrypto::PRIVATE_KEY_SIZE) {
-            std::cerr << "Failed to convert private key to bytes" << std::endl;
+            std::println(stderr, "Failed to convert private key to bytes");
             return false;
         }
         
         if (ECCrypto::hexToBytes(ecc_key_pair->public_key_hex, kp->public_key.data(), ECCrypto::PUBLIC_KEY_SIZE) != ECCrypto::PUBLIC_KEY_SIZE) {
-            std::cerr << "Failed to convert public key to bytes" << std::endl;
+            std::println(stderr, "Failed to convert public key to bytes");
             return false;
         }
         
@@ -124,7 +123,7 @@ bool Wallet::importPrivateKey(const std::string& priv_key_hex) {
         return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error importing private key: " << e.what() << std::endl;
+        std::println(stderr, "Error importing private key: {}", e.what());
         return false;
     }
 }
@@ -162,7 +161,7 @@ std::string Wallet::getPublicKeyHex(const std::string& address) const {
 }
 
 bool Wallet::hasAddress(const std::string& address) const {
-    return key_pairs.find(address) != key_pairs.end();
+    return key_pairs.contains(address);
 }
 
 std::vector<std::string> Wallet::getAllAddresses() const {
@@ -180,7 +179,7 @@ void Wallet::setDefaultAddress(const std::string& address) {
     if (hasAddress(address)) {
         default_address = address;
     } else {
-        std::cerr << "Cannot set default address: address not found in wallet" << std::endl;
+        std::println(stderr, "Cannot set default address: address not found in wallet");
     }
 }
 
@@ -190,12 +189,12 @@ std::string Wallet::getDefaultAddress() const {
 
 bool Wallet::signTransaction(Transaction& transaction, const std::string& from_address) const {
     if (!hasAddress(from_address)) {
-        std::cerr << "Address not found in wallet: " << from_address << std::endl;
+        std::println(stderr, "Address not found in wallet: {}", from_address);
         return false;
     }
     
     if (transaction.getSender() != from_address) {
-        std::cerr << "Transaction sender doesn't match from_address" << std::endl;
+        std::println(stderr, "Transaction sender doesn't match from_address");
         return false;
     }
     
@@ -205,7 +204,7 @@ bool Wallet::signTransaction(Transaction& transaction, const std::string& from_a
 
 bool Wallet::verifyTransaction(const Transaction& transaction, const std::string& address) const {
     if (!hasAddress(address)) {
-        std::cerr << "Address not found in wallet: " << address << std::endl;
+        std::println(stderr, "Address not found in wallet: {}", address);
         return false;
     }
     
@@ -217,7 +216,7 @@ bool Wallet::saveToFile(const std::string& filename, const std::string& password
     try {
         std::ofstream file(filename, std::ios::binary);
         if (!file.is_open()) {
-            std::cerr << "Failed to open file for writing: " << filename << std::endl;
+            std::println(stderr, "Failed to open file for writing: {}", filename);
             return false;
         }
         
@@ -237,7 +236,7 @@ bool Wallet::saveToFile(const std::string& filename, const std::string& password
         return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error saving wallet to file: " << e.what() << std::endl;
+        std::println(stderr, "Error saving wallet to file: {}", e.what());
         return false;
     }
 }
@@ -246,7 +245,7 @@ bool Wallet::loadFromFile(const std::string& filename, const std::string& passwo
     try {
         std::ifstream file(filename);
         if (!file.is_open()) {
-            std::cerr << "Failed to open file for reading: " << filename << std::endl;
+            std::println(stderr, "Failed to open file for reading: {}", filename);
             return false;
         }
         
@@ -265,7 +264,7 @@ bool Wallet::loadFromFile(const std::string& filename, const std::string& passwo
             size_t second_colon = line.find(':', first_colon + 1);
             
             if (first_colon == std::string::npos || second_colon == std::string::npos) {
-                std::cerr << "Invalid line format in wallet file" << std::endl;
+                std::println(stderr, "Invalid line format in wallet file");
                 continue;
             }
             
@@ -274,7 +273,7 @@ bool Wallet::loadFromFile(const std::string& filename, const std::string& passwo
             std::string pub_hex = line.substr(second_colon + 1);
             
             if (!importKeyPair(priv_hex, pub_hex)) {
-                std::cerr << "Failed to import key pair for address: " << address << std::endl;
+                std::println(stderr, "Failed to import key pair for address: {}", address);
                 continue;
             }
         }
@@ -283,7 +282,7 @@ bool Wallet::loadFromFile(const std::string& filename, const std::string& passwo
         return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error loading wallet from file: " << e.what() << std::endl;
+        std::println(stderr, "Error loading wallet from file: {}", e.what());
         return false;
     }
 }
@@ -294,22 +293,17 @@ void Wallet::clear() {
 }
 
 std::string Wallet::toString() const {
-    std::stringstream ss;
-    ss << "Wallet Summary:" << std::endl;
-    ss << "  Total Addresses: " << key_pairs.size() << std::endl;
-    ss << "  Default Address: " << (default_address.empty() ? "None" : default_address) << std::endl;
-    ss << "  Addresses:" << std::endl;
-    
-    for (const auto& pair : key_pairs) {
-        const std::string& address = pair.first;
-        ss << "    " << address;
-        if (address == default_address) {
-            ss << " (default)";
-        }
-        ss << std::endl;
+    std::string result = std::format(
+        "Wallet Summary:\n  Total Addresses: {}\n  Default Address: {}\n  Addresses:\n",
+        key_pairs.size(),
+        default_address.empty() ? "None" : default_address
+    );
+
+    for (const auto& [address, kp] : key_pairs) {
+        result += std::format("    {}{}\n", address, address == default_address ? " (default)" : "");
     }
-    
-    return ss.str();
+
+    return result;
 }
 
 } // namespace wallet

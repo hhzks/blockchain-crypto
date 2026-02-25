@@ -12,6 +12,7 @@
 #include <memory>
 #include <chrono>
 #include <condition_variable>
+#include <format>
 
 #ifdef _WIN32
     #define WIN32_LEAN_AND_MEAN
@@ -128,10 +129,7 @@ struct P2PConfig {
     std::vector<std::string> seed_nodes;
 };
 
-/**
- * P2P Network Node
- * Handles peer connections, message routing, and blockchain synchronization
- */
+
 class P2PNode {
 private:
     std::string node_id;
@@ -144,19 +142,19 @@ private:
     std::atomic<bool> syncing;
     
     std::unordered_map<std::string, std::shared_ptr<Peer>> peers;
-    std::mutex peers_mutex;
+    mutable std::mutex peers_mutex;
     
     std::unordered_set<std::string> known_blocks;
     std::unordered_set<std::string> known_txs;
-    std::mutex known_mutex;
+    mutable std::mutex known_mutex;
     
-    std::thread listener_thread;
-    std::thread receiver_thread;
-    std::thread ping_thread;
-    std::thread sync_thread;
+    std::jthread listener_thread;
+    std::jthread receiver_thread;
+    std::jthread ping_thread;
+    std::jthread sync_thread;
     
     std::condition_variable stop_condition;
-    std::mutex stop_mutex;
+    mutable std::mutex stop_mutex;
     
 public:
     P2PNode(Blockchain* chain, const P2PConfig& cfg = P2PConfig());
@@ -218,4 +216,4 @@ private:
     void log(const std::string& message);
 };
 
-} // namespace p2p
+}
