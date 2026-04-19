@@ -18,7 +18,9 @@
     #define WIN32_LEAN_AND_MEAN
     #include <winsock2.h>
     #include <ws2tcpip.h>
-    #pragma comment(lib, "ws2_32.lib")
+    #ifdef _MSC_VER
+        #pragma comment(lib, "ws2_32.lib")
+    #endif
     using SocketType = SOCKET;
     #define INVALID_SOCK INVALID_SOCKET
     #define SOCKET_ERROR_CODE SOCKET_ERROR
