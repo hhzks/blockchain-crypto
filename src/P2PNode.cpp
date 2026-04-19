@@ -1,18 +1,14 @@
 #include "include/P2PNode.h"
-#include <iostream>
 #include <sstream>
 #include <random>
 #include <algorithm>
-#include <iomanip>
+#include <format>
+#include <print>
 
 namespace p2p {
 
-// ============================================================================
-// Peer Implementation
-// ============================================================================
-
 bool Peer::send(const Message& msg) {
-    std::lock_guard<std::mutex> lock(send_mutex);
+    std::scoped_lock lock(send_mutex);
     
     if (socket == INVALID_SOCK) {
         return false;
@@ -83,12 +79,8 @@ bool Peer::receive(Message& msg) {
     }
 }
 
-// ============================================================================
-// P2PNode Implementation
-// ============================================================================
-
 P2PNode::P2PNode(Blockchain* chain, const P2PConfig& cfg)
-    : blockchain(chain), config(cfg), listen_socket(INVALID_SOCK),
+    : config(cfg), blockchain(chain), listen_socket(INVALID_SOCK),
       running(false), syncing(false) {
     node_id = generateNodeId();
 }
@@ -101,12 +93,7 @@ std::string P2PNode::generateNodeId() {
     std::random_device rd;
     std::mt19937_64 gen(rd());
     std::uniform_int_distribution<uint64_t> dis;
-    
-    std::stringstream ss;
-    ss << std::hex << std::setfill('0');
-    ss << std::setw(16) << dis(gen);
-    ss << std::setw(16) << dis(gen);
-    return ss.str();
+    return std::format("{:016x}{:016x}", dis(gen), dis(gen));
 }
 
 bool P2PNode::initializeNetwork() {
@@ -177,10 +164,10 @@ bool P2PNode::start() {
     
     running = true;
     
-    listener_thread = std::thread(&P2PNode::acceptConnections, this);
-    receiver_thread = std::thread(&P2PNode::receiveMessages, this);
-    ping_thread = std::thread(&P2PNode::pingPeers, this);
-    sync_thread = std::thread(&P2PNode::syncPeriodically, this);
+    listener_thread = std::jthread(&P2PNode::acceptConnections, this);
+    receiver_thread = std::jthread(&P2PNode::receiveMessages, this);
+    ping_thread = std::jthread(&P2PNode::pingPeers, this);
+    sync_thread = std::jthread(&P2PNode::syncPeriodically, this);
     
     connectToSeedNodes();
     
@@ -202,7 +189,7 @@ void P2PNode::stop() {
     }
     
     {
-        std::lock_guard<std::mutex> lock(peers_mutex);
+        std::scoped_lock lock(peers_mutex);
         for (auto& [addr, peer] : peers) {
             auto msg = Message::createDisconnect("Node shutting down");
             peer->send(msg);
@@ -227,8 +214,8 @@ bool P2PNode::connectToPeer(const std::string& ip, uint16_t port) {
     std::string address = ip + ":" + std::to_string(port);
     
     {
-        std::lock_guard<std::mutex> lock(peers_mutex);
-        if (peers.find(address) != peers.end()) {
+        std::scoped_lock lock(peers_mutex);
+        if (peers.contains(address)) {
             log("Already connected to " + address);
             return true;
         }
@@ -286,7 +273,7 @@ bool P2PNode::connectToPeer(const std::string& ip, uint16_t port) {
     }
     
     {
-        std::lock_guard<std::mutex> lock(peers_mutex);
+        std::scoped_lock lock(peers_mutex);
         peers[address] = peer;
     }
     
@@ -298,7 +285,7 @@ void P2PNode::disconnectPeer(const std::string& address) {
     std::shared_ptr<Peer> peer;
     
     {
-        std::lock_guard<std::mutex> lock(peers_mutex);
+        std::scoped_lock lock(peers_mutex);
         auto it = peers.find(address);
         if (it == peers.end()) {
             return;
@@ -321,7 +308,7 @@ void P2PNode::removePeer(const std::string& address) {
     std::shared_ptr<Peer> peer;
     
     {
-        std::lock_guard<std::mutex> lock(peers_mutex);
+        std::scoped_lock lock(peers_mutex);
         auto it = peers.find(address);
         if (it == peers.end()) {
             return;
@@ -341,8 +328,8 @@ void P2PNode::broadcastBlock(std::shared_ptr<Block> block) {
     std::string block_hash = block->getHash();
     
     {
-        std::lock_guard<std::mutex> lock(known_mutex);
-        if (known_blocks.count(block_hash)) {
+        std::scoped_lock lock(known_mutex);
+        if (known_blocks.contains(block_hash)) {
             return;
         }
         known_blocks.insert(block_hash);
@@ -365,8 +352,8 @@ void P2PNode::broadcastTransaction(std::shared_ptr<Transaction> tx) {
     std::string tx_hash = tx->calculateHash();
     
     {
-        std::lock_guard<std::mutex> lock(known_mutex);
-        if (known_txs.count(tx_hash)) {
+        std::scoped_lock lock(known_mutex);
+        if (known_txs.contains(tx_hash)) {
             return;
         }
         known_txs.insert(tx_hash);
@@ -397,7 +384,7 @@ void P2PNode::requestSync() {
 }
 
 size_t P2PNode::getPeerCount() const {
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(peers_mutex));
+    std::scoped_lock lock(peers_mutex);
     size_t count = 0;
     for (const auto& [addr, peer] : peers) {
         if (peer->getState() == PeerState::CONNECTED) {
@@ -409,7 +396,7 @@ size_t P2PNode::getPeerCount() const {
 
 std::vector<PeerInfo> P2PNode::getConnectedPeers() const {
     std::vector<PeerInfo> result;
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(peers_mutex));
+    std::scoped_lock lock(peers_mutex);
     
     for (const auto& [addr, peer] : peers) {
         if (peer->getState() == PeerState::CONNECTED) {
@@ -445,7 +432,7 @@ void P2PNode::acceptConnections() {
         std::string address = std::string(ip_str) + ":" + std::to_string(port);
         
         {
-            std::lock_guard<std::mutex> lock(peers_mutex);
+            std::scoped_lock lock(peers_mutex);
             if (peers.size() >= config.max_peers) {
                 log("Rejected connection from " + address + " (max peers reached)");
                 closesocket(client_sock);
@@ -469,7 +456,7 @@ void P2PNode::acceptConnections() {
         peer->setState(PeerState::HANDSHAKING);
         
         {
-            std::lock_guard<std::mutex> lock(peers_mutex);
+            std::scoped_lock lock(peers_mutex);
             peers[address] = peer;
         }
         
@@ -482,7 +469,7 @@ void P2PNode::receiveMessages() {
         std::vector<std::pair<std::string, std::shared_ptr<Peer>>> current_peers;
         
         {
-            std::lock_guard<std::mutex> lock(peers_mutex);
+            std::scoped_lock lock(peers_mutex);
             for (const auto& [addr, peer] : peers) {
                 current_peers.push_back({addr, peer});
             }
@@ -530,7 +517,7 @@ void P2PNode::pingPeers() {
         std::vector<std::pair<std::string, std::shared_ptr<Peer>>> current_peers;
         
         {
-            std::lock_guard<std::mutex> lock(peers_mutex);
+            std::scoped_lock lock(peers_mutex);
             for (const auto& [addr, peer] : peers) {
                 if (peer->getState() == PeerState::CONNECTED) {
                     current_peers.push_back({addr, peer});
@@ -621,13 +608,11 @@ void P2PNode::handleMessage(std::shared_ptr<Peer> peer, const Message& msg) {
 void P2PNode::handleHandshake(std::shared_ptr<Peer> peer, const Message& msg) {
     std::istringstream iss(msg.getPayload());
     std::string peer_node_id, version;
-    uint16_t peer_port;
     int64_t peer_height;
-    
+
     std::getline(iss, peer_node_id, '|');
     std::string token;
-    std::getline(iss, token, '|');
-    peer_port = static_cast<uint16_t>(std::stoi(token));
+    std::getline(iss, token, '|'); // peer_port — unused; connection is already established
     std::getline(iss, token, '|');
     peer_height = std::stoll(token);
     std::getline(iss, version, '|');
@@ -675,7 +660,7 @@ void P2PNode::handleGetPeers(std::shared_ptr<Peer> peer, const Message& /*msg*/)
     std::vector<PeerInfo> peer_list;
     
     {
-        std::lock_guard<std::mutex> lock(peers_mutex);
+        std::scoped_lock lock(peers_mutex);
         for (const auto& [addr, p] : peers) {
             if (p->getState() == PeerState::CONNECTED && p.get() != peer.get()) {
                 peer_list.push_back(p->toPeerInfo());
@@ -709,8 +694,8 @@ void P2PNode::handlePeers(std::shared_ptr<Peer> /*peer*/, const Message& msg) {
             bool already_connected = false;
             
             {
-                std::lock_guard<std::mutex> lock(peers_mutex);
-                already_connected = peers.find(address) != peers.end();
+                std::scoped_lock lock(peers_mutex);
+                already_connected = peers.contains(address);
             }
             
             if (!already_connected && getPeerCount() < config.max_peers) {
@@ -769,7 +754,7 @@ void P2PNode::handleBlocks(std::shared_ptr<Peer> /*peer*/, const Message& msg) {
             auto block = BlockSerializer::deserialize(line);
             
             {
-                std::lock_guard<std::mutex> lock(known_mutex);
+                std::scoped_lock lock(known_mutex);
                 known_blocks.insert(block->getHash());
             }
             
@@ -810,8 +795,8 @@ void P2PNode::handleNewBlock(std::shared_ptr<Peer> peer, const Message& msg) {
         std::string block_hash = block->getHash();
         
         {
-            std::lock_guard<std::mutex> lock(known_mutex);
-            if (known_blocks.count(block_hash)) {
+            std::scoped_lock lock(known_mutex);
+            if (known_blocks.contains(block_hash)) {
                 return;
             }
             known_blocks.insert(block_hash);
@@ -838,8 +823,8 @@ void P2PNode::handleNewTransaction(std::shared_ptr<Peer> peer, const Message& ms
         std::string tx_hash = tx->calculateHash();
         
         {
-            std::lock_guard<std::mutex> lock(known_mutex);
-            if (known_txs.count(tx_hash)) {
+            std::scoped_lock lock(known_mutex);
+            if (known_txs.contains(tx_hash)) {
                 return;
             }
             known_txs.insert(tx_hash);
@@ -872,7 +857,7 @@ void P2PNode::broadcast(const Message& msg, const std::string& exclude_peer) {
     std::vector<std::shared_ptr<Peer>> peer_list;
     
     {
-        std::lock_guard<std::mutex> lock(peers_mutex);
+        std::scoped_lock lock(peers_mutex);
         for (const auto& [addr, peer] : peers) {
             if (peer->getState() == PeerState::CONNECTED && addr != exclude_peer) {
                 peer_list.push_back(peer);
@@ -893,7 +878,7 @@ void P2PNode::checkPeerTimeouts() {
     std::vector<std::string> timed_out;
     
     {
-        std::lock_guard<std::mutex> lock(peers_mutex);
+        std::scoped_lock lock(peers_mutex);
         for (const auto& [addr, peer] : peers) {
             if (peer->getState() == PeerState::CONNECTED &&
                 now - peer->getLastSeen() > config.peer_timeout) {
@@ -924,7 +909,7 @@ std::shared_ptr<Peer> P2PNode::findBestPeerForSync() {
     std::shared_ptr<Peer> best_peer;
     int64_t max_height = static_cast<int64_t>(blockchain->getChainSize());
     
-    std::lock_guard<std::mutex> lock(peers_mutex);
+    std::scoped_lock lock(peers_mutex);
     for (const auto& [addr, peer] : peers) {
         if (peer->getState() == PeerState::CONNECTED &&
             peer->getBlockHeight() > max_height) {
@@ -954,21 +939,26 @@ void P2PNode::syncWithPeer(std::shared_ptr<Peer> peer) {
 }
 
 void P2PNode::log(const std::string& message) {
-    if (!config.enable_logging) {
-        return;
-    }
-    
-    auto now = std::chrono::system_clock::now();
-    auto time = std::chrono::system_clock::to_time_t(now);
-    
-    std::ostringstream oss;
-    oss << "[P2P " << std::put_time(std::localtime(&time), "%H:%M:%S") << "] " << message;
-    
+    if (!config.enable_logging) return;
+
+    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    const auto log_msg = std::format("[P2P {:%H:%M:%S}] {}", now, message);
+
     if (callbacks.onLog) {
-        callbacks.onLog(oss.str());
+        callbacks.onLog(log_msg);
     } else {
-        std::cout << oss.str() << std::endl;
+        std::println("{}", log_msg);
     }
 }
 
-} // namespace p2p
+uint16_t P2PNode::getActualListenPort() const {
+    if (listen_socket == INVALID_SOCK) return 0;
+    sockaddr_in addr{};
+    socklen_t len = sizeof(addr);
+    if (getsockname(listen_socket, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
+        return 0;
+    }
+    return ntohs(addr.sin_port);
+}
+
+}

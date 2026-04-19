@@ -8,6 +8,11 @@ Blockchain::Blockchain() : difficulty(4), mining_reward(100.0) {
     chain.push_back(createGenesisBlock());
 }
 
+Blockchain::Blockchain(int initial_difficulty, double initial_reward)
+    : difficulty(initial_difficulty), mining_reward(initial_reward) {
+    chain.push_back(createGenesisBlock());
+}
+
 std::shared_ptr<Block> Blockchain::createGenesisBlock() {
     auto genesis = std::make_shared<Block>(0, "0", INITIAL_DIFFICULTY);
     auto genesis_tx = std::make_shared<Transaction>("system", "genesis", 0);

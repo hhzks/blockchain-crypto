@@ -12,12 +12,15 @@
 #include <memory>
 #include <chrono>
 #include <condition_variable>
+#include <format>
 
 #ifdef _WIN32
     #define WIN32_LEAN_AND_MEAN
     #include <winsock2.h>
     #include <ws2tcpip.h>
-    #pragma comment(lib, "ws2_32.lib")
+    #ifdef _MSC_VER
+        #pragma comment(lib, "ws2_32.lib")
+    #endif
     using SocketType = SOCKET;
     #define INVALID_SOCK INVALID_SOCKET
     #define SOCKET_ERROR_CODE SOCKET_ERROR
@@ -128,10 +131,7 @@ struct P2PConfig {
     std::vector<std::string> seed_nodes;
 };
 
-/**
- * P2P Network Node
- * Handles peer connections, message routing, and blockchain synchronization
- */
+
 class P2PNode {
 private:
     std::string node_id;
@@ -144,19 +144,19 @@ private:
     std::atomic<bool> syncing;
     
     std::unordered_map<std::string, std::shared_ptr<Peer>> peers;
-    std::mutex peers_mutex;
+    mutable std::mutex peers_mutex;
     
     std::unordered_set<std::string> known_blocks;
     std::unordered_set<std::string> known_txs;
-    std::mutex known_mutex;
+    mutable std::mutex known_mutex;
     
-    std::thread listener_thread;
-    std::thread receiver_thread;
-    std::thread ping_thread;
-    std::thread sync_thread;
+    std::jthread listener_thread;
+    std::jthread receiver_thread;
+    std::jthread ping_thread;
+    std::jthread sync_thread;
     
     std::condition_variable stop_condition;
-    std::mutex stop_mutex;
+    mutable std::mutex stop_mutex;
     
 public:
     P2PNode(Blockchain* chain, const P2PConfig& cfg = P2PConfig());
@@ -181,6 +181,7 @@ public:
     std::vector<PeerInfo> getConnectedPeers() const;
     const std::string& getNodeId() const { return node_id; }
     uint16_t getPort() const { return config.listen_port; }
+    uint16_t getActualListenPort() const;
     
     void setCallbacks(const P2PCallbacks& cb) { callbacks = cb; }
     
@@ -218,4 +219,4 @@ private:
     void log(const std::string& message);
 };
 
-} // namespace p2p
+}

@@ -253,3 +253,18 @@ Possible enhancements:
 8. **API**: REST/GraphQL interface
 
 This foundation provides a solid understanding of blockchain fundamentals and can serve as a starting point for more advanced blockchain development.
+
+## Running Tests
+
+The test suite uses Catch2 v3 fetched via CMake FetchContent. To build and run:
+
+```
+cmake -B build -S . -DBUILD_TESTS=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+**Test labels:** `ctest -L unit` runs unit tests only; `ctest -L integration` runs integration tests. P2P tests require serial execution (`-j1`).
+
+**Known-failing tests** are tagged `[!mayfail]` and documented in `docs/superpowers/specs/2026-04-19-test-suite-design.md` §4. They expose real defects in the codebase (signature drop on deserialize, difficulty-model inconsistency, mineBlock target string bug) and are expected to stay red until those are fixed.
+

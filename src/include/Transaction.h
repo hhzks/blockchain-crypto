@@ -29,6 +29,7 @@ public:
     bool verifySignatureByAddress(const std::string& address) const;
     std::string toString() const;
     bool isValid() const;
+    void setSignature(const std::string& sig) { signature = sig; }
 
 private:
     std::string getTransactionData() const;

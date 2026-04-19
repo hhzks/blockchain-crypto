@@ -266,37 +266,35 @@ public:
         std::string token;
         
         int index;
-        long long timestamp;
         std::string prev_hash, hash, merkle_root;
-        int difficulty, nonce;
+        int difficulty;
         size_t tx_count;
-        
+
         std::getline(iss, token, '|'); index = std::stoi(token);
-        std::getline(iss, token, '|'); timestamp = std::stoll(token);
+        std::getline(iss, token, '|'); // timestamp — not reconstructed
         std::getline(iss, prev_hash, '|');
         std::getline(iss, hash, '|');
         std::getline(iss, merkle_root, '|');
         std::getline(iss, token, '|'); difficulty = std::stoi(token);
-        std::getline(iss, token, '|'); nonce = std::stoi(token);
+        std::getline(iss, token, '|'); // nonce — not reconstructed
         std::getline(iss, token, '|'); tx_count = std::stoull(token);
-        
+
         auto block = std::make_shared<Block>(index, prev_hash, difficulty);
-        
+
         for (size_t i = 0; i < tx_count; ++i) {
             std::string tx_data;
             std::getline(iss, tx_data, '|');
-            
+
             std::istringstream tx_stream(tx_data);
             std::string sender, receiver, sig;
             double amount;
-            long long tx_timestamp;
-            
+
             std::getline(tx_stream, sender, ',');
             std::getline(tx_stream, receiver, ',');
             std::getline(tx_stream, token, ','); amount = std::stod(token);
-            std::getline(tx_stream, token, ','); tx_timestamp = std::stoll(token);
+            std::getline(tx_stream, token, ','); // tx_timestamp — not reconstructed
             std::getline(tx_stream, sig, ',');
-            
+
             auto tx = std::make_shared<Transaction>(sender, receiver, amount);
             block->addTransaction(tx);
         }
@@ -321,17 +319,16 @@ public:
         std::istringstream iss(data);
         std::string sender, receiver, sig, token;
         double amount;
-        long long timestamp;
-        
+
         std::getline(iss, sender, '|');
         std::getline(iss, receiver, '|');
         std::getline(iss, token, '|'); amount = std::stod(token);
-        std::getline(iss, token, '|'); timestamp = std::stoll(token);
+        std::getline(iss, token, '|'); // timestamp — not reconstructed
         std::getline(iss, sig, '|');
-        
+
         auto tx = std::make_shared<Transaction>(sender, receiver, amount);
         return tx;
     }
 };
 
-} // namespace p2p
+}

@@ -1,9 +1,8 @@
 #include "include/Transaction.h"
 #include "include/utils.h"
 #include "include/ECCrypto.h"
-#include <sstream>
-#include <iostream>
-#include <iomanip>
+#include <format>
+#include <print>
 
 Transaction::Transaction(const std::string& from, const std::string& to, double value)
     : sender(from), receiver(to), amount(value), timestamp(utils::getCurrentTimestamp()) {
@@ -11,14 +10,12 @@ Transaction::Transaction(const std::string& from, const std::string& to, double 
 }
 
 std::string Transaction::calculateHash() const {
-    std::stringstream ss;
-    ss << sender << ":" << receiver << ":" << std::fixed << std::setprecision(8) << amount << ":" << timestamp;
-    return utils::sha256(ss.str());
+    return utils::sha256(std::format("{}:{}:{:.8f}:{}", sender, receiver, amount, timestamp));
 }
 
 bool Transaction::signTransaction(const ECCrypto::PrivateKey& private_key) {
     if (!ECCrypto::isValidPrivateKey(private_key)) {
-        std::cout << "Invalid private key for transaction signing" << std::endl;
+        std::println(stderr, "Invalid private key for transaction signing");
         return false;
     }
     
@@ -26,24 +23,24 @@ bool Transaction::signTransaction(const ECCrypto::PrivateKey& private_key) {
         std::string tx_data = getTransactionData();
         ECCrypto::Signature sig = ECCrypto::signMessage(tx_data, private_key);
         signature = ECCrypto::signatureToHex(sig);
-        std::cout << "Transaction signed successfully" << std::endl;
+        std::println(stderr, "Transaction signed successfully");
         return true;
         
     } catch (const std::exception& e) {
-        std::cout << "Error signing transaction: " << e.what() << std::endl;
+        std::println(stderr, "Error signing transaction: {}", e.what());
         return false;
     }
 }
 
 bool Transaction::signTransaction(const std::string& private_key_hex) {
     if (private_key_hex.length() != ECCrypto::PRIVATE_KEY_SIZE * 2) {
-        std::cout << "Invalid private key hex length" << std::endl;
+        std::println(stderr, "Invalid private key hex length");
         return false;
     }
     
     ECCrypto::PrivateKey priv_key;
     if (ECCrypto::hexToBytes(private_key_hex, priv_key.data(), ECCrypto::PRIVATE_KEY_SIZE) != ECCrypto::PRIVATE_KEY_SIZE) {
-        std::cout << "Failed to parse private key hex" << std::endl;
+        std::println(stderr, "Failed to parse private key hex");
         return false;
     }
     
@@ -65,7 +62,7 @@ bool Transaction::verifySignature(const ECCrypto::PublicKey& public_key) const {
         return ECCrypto::verifyMessageSignature(tx_data, sig, public_key);
         
     } catch (const std::exception& e) {
-        std::cout << "Error verifying signature: " << e.what() << std::endl;
+        std::println(stderr, "Error verifying signature: {}", e.what());
         return false;
     }
 }
@@ -95,32 +92,27 @@ bool Transaction::verifySignatureByAddress(const std::string& address) const {
 }
 
 std::string Transaction::toString() const {
-    std::stringstream ss;
-    ss << "Transaction {" << std::endl;
-    ss << "  From: " << sender << std::endl;
-    ss << "  To: " << receiver << std::endl;
-    ss << "  Amount: " << amount << std::endl;
-    ss << "  Timestamp: " << timestamp << std::endl;
-    ss << "  Hash: " << calculateHash() << std::endl;
-    ss << "  Signature: " << (signature.empty() ? "Not signed" : signature.substr(0, 16) + "...") << std::endl;
-    ss << "}" << std::endl;
-    return ss.str();
+    return std::format(
+        "Transaction {{\n  From: {}\n  To: {}\n  Amount: {}\n  Timestamp: {}\n  Hash: {}\n  Signature: {}\n}}\n",
+        sender, receiver, amount, timestamp, calculateHash(),
+        signature.empty() ? "Not signed" : signature.substr(0, 16) + "..."
+    );
 }
 
 bool Transaction::isValid() const {
     // Check basic validity conditions
     if (sender.empty() || receiver.empty()) {
-        std::cout << "Invalid transaction: Empty sender or receiver address" << std::endl;
+        std::println(stderr, "Invalid transaction: Empty sender or receiver address");
         return false;
     }
     
     if (amount <= 0) {
-        std::cout << "Invalid transaction: Amount must be positive" << std::endl;
+        std::println(stderr, "Invalid transaction: Amount must be positive");
         return false;
     }
     
     if (sender == receiver) {
-        std::cout << "Invalid transaction: Cannot send to yourself" << std::endl;
+        std::println(stderr, "Invalid transaction: Cannot send to yourself");
         return false;
     }
     
@@ -131,7 +123,7 @@ bool Transaction::isValid() const {
     
     // Check if transaction is signed
     if (signature.empty()) {
-        std::cout << "Invalid transaction: Transaction not signed" << std::endl;
+        std::println(stderr, "Invalid transaction: Transaction not signed");
         return false;
     }
     
@@ -142,7 +134,5 @@ bool Transaction::isValid() const {
 }
 
 std::string Transaction::getTransactionData() const {
-    std::stringstream ss;
-    ss << sender << ":" << receiver << ":" << std::fixed << std::setprecision(8) << amount << ":" << timestamp;
-    return ss.str();
+    return std::format("{}:{}:{:.8f}:{}", sender, receiver, amount, timestamp);
 }

@@ -1,7 +1,6 @@
 #include <string>
 #include <vector>
-#include <sstream>
-#include <iomanip>
+#include <format>
 #include <iostream>
 #include <cstring>
 #include <cstdint>
@@ -116,12 +115,8 @@ namespace SHA256 {
             processBlock(&paddedMessage[i], hash);
         }
         
-        std::stringstream ss;
-        for (int i = 0; i < 8; i++) {
-            ss << std::hex << std::setw(8) << std::setfill('0') << hash[i];
-        }
-        
-        return ss.str();
+        return std::format("{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
+            hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7]);
     }
 
     std::string hash(const std::string& input) {
