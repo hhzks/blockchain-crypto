@@ -179,6 +179,7 @@ public:
     std::vector<PeerInfo> getConnectedPeers() const;
     const std::string& getNodeId() const { return node_id; }
     uint16_t getPort() const { return config.listen_port; }
+    uint16_t getActualListenPort() const;
     
     void setCallbacks(const P2PCallbacks& cb) { callbacks = cb; }
     

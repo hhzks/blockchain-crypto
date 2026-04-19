@@ -953,4 +953,14 @@ void P2PNode::log(const std::string& message) {
     }
 }
 
+uint16_t P2PNode::getActualListenPort() const {
+    if (listen_socket == INVALID_SOCK) return 0;
+    sockaddr_in addr{};
+    socklen_t len = sizeof(addr);
+    if (getsockname(listen_socket, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
+        return 0;
+    }
+    return ntohs(addr.sin_port);
+}
+
 }
