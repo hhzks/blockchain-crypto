@@ -21,6 +21,7 @@ private:
 
 public:
     Blockchain();
+    Blockchain(int initial_difficulty, double initial_reward);
 
     std::shared_ptr<Block> createGenesisBlock();
     std::shared_ptr<Block> getLatestBlock() const;
