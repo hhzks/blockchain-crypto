@@ -1,2 +1,8 @@
 archive/*
 .worktrees/
+
+# Test build outputs
+build/_deps/
+build/tests/
+build/CTestTestfile.cmake
+build/Testing/
