@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
 #include "Blockchain.h"
+#include "utils.h"
 #include "fixtures.h"
 
 using test_support::MinedChainFixture;
@@ -41,6 +42,28 @@ TEST_CASE("minePendingTransactions credits miner", "[unit][blockchain][!mayfail]
 
 TEST_CASE("isChainValid is true for fresh genesis-only chain", "[unit][blockchain]") {
     MinedChainFixture f;
+    REQUIRE(f.chain.isChainValid());
+}
+
+TEST_CASE("constructor difficulty controls genesis and mining difficulty",
+          "[unit][blockchain]") {
+    Blockchain c(3, 50.0);
+    REQUIRE(c.getLatestBlock()->getDifficulty() == 3);
+    REQUIRE(utils::checkProofOfWork(c.getLatestBlock()->getHash(), 3));
+    REQUIRE(c.isChainValid());
+}
+
+TEST_CASE("mining and validation agree on difficulty across the adjustment interval",
+          "[unit][blockchain]") {
+    // Mines past DIFFICULTY_ADJUSTMENT_INTERVAL (10 blocks). Mining and
+    // validation previously used two different difficulty rules that
+    // diverged at height 11, permanently rejecting every block mined
+    // from then on.
+    MinedChainFixture f;
+    for (int i = 1; i <= 11; ++i) {
+        f.seedFunds("user_" + std::to_string(i), 1.0, "miner_1");
+    }
+    REQUIRE(f.chain.getChainSize() == 12);
     REQUIRE(f.chain.isChainValid());
 }
 

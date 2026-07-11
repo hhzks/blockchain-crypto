@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <format>
 
-Blockchain::Blockchain() : difficulty(4), mining_reward(100.0) {
+Blockchain::Blockchain() : difficulty(INITIAL_DIFFICULTY), mining_reward(100.0) {
     chain.push_back(createGenesisBlock());
 }
 
@@ -15,7 +15,7 @@ Blockchain::Blockchain(int initial_difficulty, double initial_reward)
 }
 
 std::shared_ptr<Block> Blockchain::createGenesisBlock() {
-    auto genesis = std::make_shared<Block>(0, "0", INITIAL_DIFFICULTY);
+    auto genesis = std::make_shared<Block>(0, "0", difficulty);
     auto genesis_tx = std::make_shared<Transaction>("system", "genesis", 0);
     genesis->addTransaction(genesis_tx);
     genesis->mineBlock();
@@ -90,25 +90,7 @@ void Blockchain::minePendingTransactions(const std::string& reward_address) {
 }
 
 int Blockchain::calculateRequiredDifficulty() const {
-    if (chain.size() < DIFFICULTY_ADJUSTMENT_INTERVAL) {
-        return INITIAL_DIFFICULTY;
-    }
-    
-    size_t last_idx = chain.size() - DIFFICULTY_ADJUSTMENT_INTERVAL;
-    auto last_block = chain[last_idx];
-    auto latest = chain.back();
-    
-    long long expected = TARGET_BLOCK_TIME * DIFFICULTY_ADJUSTMENT_INTERVAL;
-    long long actual = latest->getTimestamp() - last_block->getTimestamp();
-    int current = latest->getDifficulty();
-    
-    if (actual < expected / 2) {
-        return current + 1;
-    } else if (actual > expected * 2) {
-        return std::max(1, current - 1);
-    }
-    
-    return current;
+    return calculateRequiredDifficultyAtHeight(static_cast<int>(chain.size()));
 }
 
 bool Blockchain::validateBlockDifficulty(const std::shared_ptr<Block>& block) const {
@@ -149,7 +131,7 @@ bool Blockchain::isChainValid() const {
     }
     
     // Validate genesis block
-    if (!chain[0]->isValidWithDifficulty(INITIAL_DIFFICULTY)) {
+    if (!chain[0]->isValidWithDifficulty(difficulty)) {
         std::cout << "Invalid genesis block" << std::endl;
         return false;
     }
@@ -343,23 +325,26 @@ bool Blockchain::transactionExists(const std::shared_ptr<Transaction>& tx) const
     return false;
 }
 
+// Single source of truth for the difficulty required of the block at
+// `height`, replayed from the timing of the blocks below it. Mining
+// (via calculateRequiredDifficulty) and validation use this same rule.
 int Blockchain::calculateRequiredDifficultyAtHeight(int height) const {
-    if (height == 0) {
-        return INITIAL_DIFFICULTY; // Genesis block
-    }
-    
     if (height < DIFFICULTY_ADJUSTMENT_INTERVAL) {
-        return INITIAL_DIFFICULTY;
+        return difficulty;
     }
-    
-    // For blocks after the adjustment interval, we need to calculate based on timing
-    // In a real implementation, we'd recalculate difficulty as it would have been at that height
-    // For now, we'll simulate a progressive difficulty increase
-    
-    int adjustmentPeriods = height / DIFFICULTY_ADJUSTMENT_INTERVAL;
-    int baseDifficulty = INITIAL_DIFFICULTY;
-    
-    // Simple simulation: difficulty increases every adjustment period
-    // In reality, this would be calculated based on actual block timing at that height
-    return std::min(baseDifficulty + adjustmentPeriods, 6); // Cap at difficulty 6
+
+    const auto& interval_start = chain[height - DIFFICULTY_ADJUSTMENT_INTERVAL];
+    const auto& previous = chain[height - 1];
+
+    long long expected = TARGET_BLOCK_TIME * DIFFICULTY_ADJUSTMENT_INTERVAL;
+    long long actual = previous->getTimestamp() - interval_start->getTimestamp();
+    int current = previous->getDifficulty();
+
+    if (actual < expected / 2) {
+        return current + 1;
+    } else if (actual > expected * 2) {
+        return std::max(1, current - 1);
+    }
+
+    return current;
 }

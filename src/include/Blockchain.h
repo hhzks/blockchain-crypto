@@ -9,7 +9,8 @@
 class Blockchain {
 private:
     static constexpr int DIFFICULTY_ADJUSTMENT_INTERVAL = 10;
-    static constexpr long long TARGET_BLOCK_TIME = 30000;
+    // Seconds, matching the second-granularity block timestamps.
+    static constexpr long long TARGET_BLOCK_TIME = 30;
     static constexpr int INITIAL_DIFFICULTY = 2;
     static constexpr int INITIAL_MINING_REWARD = 50;
 
