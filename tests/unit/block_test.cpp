@@ -44,6 +44,25 @@ TEST_CASE("isValid catches merkle-root tampering via tx mutation",
     REQUIRE(b.isValid());
 }
 
+TEST_CASE("restore constructor + setMinedState reproduce a mined block",
+          "[unit][block]") {
+    Block b(3, "prev", 2);
+    b.addTransaction(std::make_shared<Transaction>("system", "m", 50.0));
+    b.mineBlock();
+
+    Block restored(3, "prev", 2, b.getTimestamp());
+    for (const auto& tx : b.getTransactions()) {
+        restored.addTransaction(tx);
+    }
+    restored.setMinedState(b.getNonce(), b.getHash());
+
+    REQUIRE(restored.getTimestamp() == b.getTimestamp());
+    REQUIRE(restored.getNonce() == b.getNonce());
+    REQUIRE(restored.getHash() == b.getHash());
+    REQUIRE(restored.calculateHash() == b.calculateHash());
+    REQUIRE(restored.isValid());
+}
+
 TEST_CASE("isMined agrees with checkProofOfWork", "[unit][block]") {
     Block b(0, "0", 0);
     auto tx = std::make_shared<Transaction>("system", "alice", 1.0);

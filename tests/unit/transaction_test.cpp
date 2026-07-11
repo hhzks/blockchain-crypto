@@ -70,6 +70,21 @@ TEST_CASE("isValid rejects unsigned non-system transaction", "[unit][transaction
     REQUIRE_FALSE(t.isValid());
 }
 
+TEST_CASE("restore constructor preserves timestamp so signatures verify",
+          "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+    Transaction original(kf.address(), "receiver", 1.0);
+    REQUIRE(original.signTransaction(kf.privHex()));
+
+    Transaction restored(original.getSender(), original.getReceiver(),
+                         original.getAmount(), original.getTimestamp(),
+                         original.getSignature());
+    REQUIRE(restored.getTimestamp() == original.getTimestamp());
+    REQUIRE(restored.getSignature() == original.getSignature());
+    REQUIRE(restored.calculateHash() == original.calculateHash());
+    REQUIRE(restored.verifySignature(kf.pubHex()));
+}
+
 TEST_CASE("setSignature stores signature for later retrieval", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
     Transaction original(kf.address(), "receiver", 1.0);

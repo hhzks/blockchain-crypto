@@ -14,6 +14,10 @@ private:
 
 public:
     Transaction(const std::string& from, const std::string& to, double value);
+    // Restore constructor for deserialization: preserves the original
+    // timestamp and signature so hashes and signature checks still match.
+    Transaction(const std::string& from, const std::string& to, double value,
+                long long tx_timestamp, const std::string& tx_signature);
 
     std::string getSender() const { return sender; }
     std::string getReceiver() const { return receiver; }

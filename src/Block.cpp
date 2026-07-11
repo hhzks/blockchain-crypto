@@ -4,12 +4,22 @@
 #include <iostream>
 #include <chrono>
 
-Block::Block(int idx, const std::string& prev_hash, int block_difficulty) 
-    : index(idx), timestamp(utils::getCurrentTimestamp()), previous_hash(prev_hash), 
+Block::Block(int idx, const std::string& prev_hash, int block_difficulty)
+    : Block(idx, prev_hash, block_difficulty, utils::getCurrentTimestamp()) {
+}
+
+Block::Block(int idx, const std::string& prev_hash, int block_difficulty,
+             long long block_timestamp)
+    : index(idx), timestamp(block_timestamp), previous_hash(prev_hash),
       difficulty(block_difficulty), nonce(0) {
     hash = "";
     merkle_root = "";
     calculateMerkleRoot();
+}
+
+void Block::setMinedState(int mined_nonce, const std::string& mined_hash) {
+    nonce = mined_nonce;
+    hash = mined_hash;
 }
 
 void Block::addTransaction(std::shared_ptr<Transaction> transaction) {

@@ -10,10 +10,7 @@ using test_support::TempDir;
 // bounded — Wallet::generateNewAddress calls ECCrypto::generateKeyPair whose
 // naive BigInt scalar multiplication is minutes-slow for random keys.
 TEST_CASE("End-to-end: wallet -> tx -> mine -> validate -> save -> load",
-          "[integration][lifecycle][!mayfail]") {
-    // [!mayfail] — depends on Block::mineBlock working (spec §4 discovered bug
-    // in mineBlock target string) and on saveToFile path handling (spec §4
-    // bug #4 "blockchain_saves/" hardcoded prefix).
+          "[integration][lifecycle]") {
     wallet::Wallet w;
     REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
     REQUIRE(w.importPrivateKey(

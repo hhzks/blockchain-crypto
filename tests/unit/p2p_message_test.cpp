@@ -1,6 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <stdexcept>
 #include "P2PMessage.h"
+#include "Block.h"
+#include "Transaction.h"
+#include "fixtures.h"
 
 using namespace p2p;
 
@@ -48,6 +51,31 @@ TEST_CASE("PeerInfo serialize/deserialize roundtrip", "[unit][p2p]") {
     REQUIRE(r.port == p.port);
     REQUIRE(r.node_id == p.node_id);
     REQUIRE(r.last_seen == p.last_seen);
+}
+
+TEST_CASE("TransactionSerializer roundtrip preserves timestamp and signature",
+          "[unit][p2p]") {
+    test_support::KeyPairFixture kf;
+    auto tx = kf.signedTx("bob", 3.5);
+
+    auto restored = TransactionSerializer::deserialize(
+        TransactionSerializer::serialize(*tx));
+    REQUIRE(restored->getTimestamp() == tx->getTimestamp());
+    REQUIRE(restored->getSignature() == tx->getSignature());
+    REQUIRE(restored->calculateHash() == tx->calculateHash());
+}
+
+TEST_CASE("BlockSerializer roundtrip preserves mined state", "[unit][p2p]") {
+    Block b(1, "prevhash", 2);
+    b.addTransaction(std::make_shared<Transaction>("system", "miner", 50.0));
+    b.mineBlock();
+
+    auto restored = BlockSerializer::deserialize(BlockSerializer::serialize(b));
+    REQUIRE(restored->getTimestamp() == b.getTimestamp());
+    REQUIRE(restored->getNonce() == b.getNonce());
+    REQUIRE(restored->getHash() == b.getHash());
+    REQUIRE(restored->calculateHash() == b.calculateHash());
+    REQUIRE(restored->isValid());
 }
 
 TEST_CASE("All message factory helpers produce reparseable messages",

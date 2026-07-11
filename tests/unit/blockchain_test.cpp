@@ -55,15 +55,32 @@ TEST_CASE("isChainValid accepts blocks mined within the same second",
     REQUIRE(f.chain.isChainValid());
 }
 
-TEST_CASE("saveToFile/loadFromFile roundtrip preserves chain size",
-          "[unit][blockchain][!mayfail]") {
-    // [!mayfail] — spec §4 bug #4: saveToFile hardcodes "blockchain_saves/" prefix.
+TEST_CASE("saveToFile/loadFromFile roundtrip preserves chain state",
+          "[unit][blockchain]") {
     MinedChainFixture f;
+    KeyPairFixture alice;
+    f.seedFunds(alice.address(), 100.0, "miner_1");
+    auto tx = alice.signedTx("bob", 25.0);
+    f.chain.addTransaction(tx);
+    f.chain.minePendingTransactions("miner_1");
+
     TempDir tmp;
     std::string path = tmp.file("chain.dat");
-
     REQUIRE(f.chain.saveToFile(path));
+
     Blockchain loaded(2, 50.0);
     REQUIRE(loaded.loadFromFile(path));
     REQUIRE(loaded.getChainSize() == f.chain.getChainSize());
+
+    // Mined state must survive the roundtrip
+    auto orig_tip = f.chain.getLatestBlock();
+    auto loaded_tip = loaded.getLatestBlock();
+    REQUIRE(loaded_tip->getHash() == orig_tip->getHash());
+    REQUIRE(loaded_tip->getNonce() == orig_tip->getNonce());
+    REQUIRE(loaded_tip->getTimestamp() == orig_tip->getTimestamp());
+
+    // Signatures must survive too, and the loaded chain must validate
+    REQUIRE(loaded_tip->getTransactions()[0]->getSignature() == tx->getSignature());
+    REQUIRE(loaded.isChainValid());
+    REQUIRE(loaded.getBalance(alice.address()) == 75.0);
 }

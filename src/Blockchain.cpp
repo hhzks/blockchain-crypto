@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <format>
 
 Blockchain::Blockchain() : difficulty(4), mining_reward(100.0) {
     chain.push_back(createGenesisBlock());
@@ -206,16 +207,16 @@ void Blockchain::printChain() const {
 }
 
 bool Blockchain::saveToFile(const std::string& filename) const {
-    std::ofstream file("blockchain_saves/" + filename);
+    std::ofstream file(filename);
     if (!file.is_open()) {
         std::cout << "Failed to open file for writing: " << filename << std::endl;
         return false;
     }
-    
+
     file << difficulty << std::endl;
     file << mining_reward << std::endl;
     file << chain.size() << std::endl;
-    
+
     // Save each block
     for (const auto& block : chain) {
         file << block->getIndex() << std::endl;
@@ -225,19 +226,23 @@ bool Blockchain::saveToFile(const std::string& filename) const {
         file << block->getMerkleRoot() << std::endl;
         file << block->getDifficulty() << std::endl;
         file << block->getNonce() << std::endl;
-        
+
         const auto& transactions = block->getTransactions();
         file << transactions.size() << std::endl;
-        
+
         for (const auto& tx : transactions) {
             file << tx->getSender() << std::endl;
             file << tx->getReceiver() << std::endl;
-            file << tx->getAmount() << std::endl;
+            // Fixed precision matching Transaction::calculateHash so the
+            // reloaded amount reproduces the same hash.
+            file << std::format("{:.8f}", tx->getAmount()) << std::endl;
             file << tx->getTimestamp() << std::endl;
-            file << tx->getSignature() << std::endl;
+            // "-" sentinel: an empty signature line would be skipped by
+            // operator>> on load and corrupt the parse.
+            file << (tx->getSignature().empty() ? "-" : tx->getSignature()) << std::endl;
         }
     }
-    
+
     file.close();
     std::cout << "Blockchain saved to " << filename << std::endl;
     return true;
@@ -263,25 +268,37 @@ bool Blockchain::loadFromFile(const std::string& filename) {
         long long timestamp;
         std::string prev_hash, hash, merkle_root;
         int block_difficulty, nonce;
-        
+
         file >> index >> timestamp >> prev_hash >> hash >> merkle_root >> block_difficulty >> nonce;
-        
-        auto block = std::make_shared<Block>(index, prev_hash, block_difficulty);
-        
+
+        auto block = std::make_shared<Block>(index, prev_hash, block_difficulty, timestamp);
+
         size_t tx_count;
         file >> tx_count;
-        
+
         for (size_t j = 0; j < tx_count; j++) {
             std::string sender, receiver, signature;
             double amount;
             long long tx_timestamp;
-            
+
             file >> sender >> receiver >> amount >> tx_timestamp >> signature;
-            
-            auto tx = std::make_shared<Transaction>(sender, receiver, amount);
+            if (signature == "-") {
+                signature.clear();
+            }
+
+            auto tx = std::make_shared<Transaction>(sender, receiver, amount,
+                                                    tx_timestamp, signature);
             block->addTransaction(tx);
         }
-        
+
+        block->setMinedState(nonce, hash);
+
+        if (block->getMerkleRoot() != merkle_root) {
+            std::cout << "Merkle root mismatch in block " << index
+                      << " while loading " << filename << std::endl;
+            return false;
+        }
+
         chain.push_back(block);
     }
     
