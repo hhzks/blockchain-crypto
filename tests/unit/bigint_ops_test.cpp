@@ -1,10 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <stdexcept>
-#include "bigint_v2.h"
+#include "bigint.h"
 
-using bigint2::BigInt;
-
-TEST_CASE("v2: long long construction and comparisons", "[unit][bigint2]") {
+TEST_CASE("v2: long long construction and comparisons", "[unit][bigint]") {
     REQUIRE(BigInt(0) == BigInt(0));
     REQUIRE(BigInt(42) == 42LL);
     REQUIRE(BigInt(-42) == -42LL);
@@ -20,14 +18,14 @@ TEST_CASE("v2: long long construction and comparisons", "[unit][bigint2]") {
     REQUIRE(BigInt(-9223372036854775807LL - 1) < BigInt(-9223372036854775807LL));
 }
 
-TEST_CASE("v2: unary minus and zero canonicalization", "[unit][bigint2]") {
+TEST_CASE("v2: unary minus and zero canonicalization", "[unit][bigint]") {
     REQUIRE(-BigInt(5) == -5LL);
     REQUIRE(-BigInt(-5) == 5LL);
     REQUIRE(-BigInt(0) == 0LL);       // negative zero must not exist
     REQUIRE(+BigInt(-3) == -3LL);
 }
 
-TEST_CASE("v2: to_int in range and out of range", "[unit][bigint2]") {
+TEST_CASE("v2: to_int in range and out of range", "[unit][bigint]") {
     REQUIRE(BigInt(0).to_int() == 0);
     REQUIRE(BigInt(15).to_int() == 15);
     REQUIRE(BigInt(-15).to_int() == -15);
@@ -37,7 +35,7 @@ TEST_CASE("v2: to_int in range and out of range", "[unit][bigint2]") {
     REQUIRE_THROWS_AS(BigInt(-2147483649LL).to_int(), std::out_of_range);
 }
 
-TEST_CASE("v2: addition and subtraction, small values, all signs", "[unit][bigint2]") {
+TEST_CASE("v2: addition and subtraction, small values, all signs", "[unit][bigint]") {
     REQUIRE(BigInt(2) + BigInt(3) == 5LL);
     REQUIRE(BigInt(-2) + BigInt(-3) == -5LL);
     REQUIRE(BigInt(5) + BigInt(-3) == 2LL);
@@ -49,7 +47,7 @@ TEST_CASE("v2: addition and subtraction, small values, all signs", "[unit][bigin
     REQUIRE(BigInt(7) - BigInt(7) == 0LL);
 }
 
-TEST_CASE("v2: addition carries across the 64-bit limb boundary", "[unit][bigint2]") {
+TEST_CASE("v2: addition carries across the 64-bit limb boundary", "[unit][bigint]") {
     const long long max = 9223372036854775807LL;   // 2^63 - 1
     BigInt sum = BigInt(max) + BigInt(max);        // 2^64 - 2: still one limb
     REQUIRE(sum > BigInt(max));
@@ -66,7 +64,7 @@ TEST_CASE("v2: addition carries across the 64-bit limb boundary", "[unit][bigint
     REQUIRE(two_limbs + BigInt(max) - BigInt(max) == two_limbs);
 }
 
-TEST_CASE("v2: compound add/subtract assign", "[unit][bigint2]") {
+TEST_CASE("v2: compound add/subtract assign", "[unit][bigint]") {
     BigInt x(10);
     x += BigInt(5);
     REQUIRE(x == 15LL);
@@ -74,7 +72,7 @@ TEST_CASE("v2: compound add/subtract assign", "[unit][bigint2]") {
     REQUIRE(x == -5LL);
 }
 
-TEST_CASE("v2: multiplication identities and signs", "[unit][bigint2]") {
+TEST_CASE("v2: multiplication identities and signs", "[unit][bigint]") {
     REQUIRE(BigInt(6) * BigInt(7) == 42LL);
     REQUIRE(BigInt(-6) * BigInt(7) == -42LL);
     REQUIRE(BigInt(6) * BigInt(-7) == -42LL);
@@ -84,7 +82,7 @@ TEST_CASE("v2: multiplication identities and signs", "[unit][bigint2]") {
     REQUIRE(BigInt(123) * 1LL == 123LL);
 }
 
-TEST_CASE("v2: multi-limb multiplication is consistent with addition", "[unit][bigint2]") {
+TEST_CASE("v2: multi-limb multiplication is consistent with addition", "[unit][bigint]") {
     // No string I/O exists yet, so verify algebraically against trusted ops.
     const long long max = 9223372036854775807LL;   // 2^63 - 1
     BigInt a(max);
@@ -101,7 +99,7 @@ TEST_CASE("v2: multi-limb multiplication is consistent with addition", "[unit][b
     REQUIRE(x == -15LL);
 }
 
-TEST_CASE("v2: decimal and hex string construction", "[unit][bigint2]") {
+TEST_CASE("v2: decimal and hex string construction", "[unit][bigint]") {
     REQUIRE(BigInt(std::string("0")) == 0LL);
     REQUIRE(BigInt(std::string("42")) == 42LL);
     REQUIRE(BigInt(std::string("-42")) == -42LL);
@@ -123,7 +121,7 @@ TEST_CASE("v2: decimal and hex string construction", "[unit][bigint2]") {
             BigInt(std::string("85070591730234615847396907784232501249")));
 }
 
-TEST_CASE("v2: string construction rejects invalid input", "[unit][bigint2]") {
+TEST_CASE("v2: string construction rejects invalid input", "[unit][bigint]") {
     REQUIRE_THROWS_AS(BigInt(std::string("12a")), std::invalid_argument);
     REQUIRE_THROWS_AS(BigInt(std::string("")), std::invalid_argument);
     REQUIRE_THROWS_AS(BigInt(std::string("-")), std::invalid_argument);
@@ -131,7 +129,7 @@ TEST_CASE("v2: string construction rejects invalid input", "[unit][bigint2]") {
     REQUIRE_THROWS_AS(BigInt("129", 8), std::invalid_argument);
 }
 
-TEST_CASE("v2: to_binary_string", "[unit][bigint2]") {
+TEST_CASE("v2: to_binary_string", "[unit][bigint]") {
     REQUIRE(BigInt(0).to_binary_string() == "0");
     REQUIRE(BigInt(10).to_binary_string() == "1010");
     REQUIRE(BigInt(-5).to_binary_string() == "-101");
@@ -143,7 +141,7 @@ TEST_CASE("v2: to_binary_string", "[unit][bigint2]") {
     REQUIRE(BigInt(p.to_binary_string(), 2) == p);
 }
 
-TEST_CASE("v2: floored division and modulo across all sign combinations", "[unit][bigint2]") {
+TEST_CASE("v2: floored division and modulo across all sign combinations", "[unit][bigint]") {
     // Floored: quotient rounds toward negative infinity, remainder has
     // the divisor's sign. (Python semantics; the ECC layer depends on it.)
     REQUIRE(BigInt(7)  / BigInt(3)  == 2LL);
@@ -171,7 +169,7 @@ TEST_CASE("v2: floored division and modulo across all sign combinations", "[unit
     REQUIRE_THROWS_AS(BigInt(1) % BigInt(0), std::logic_error);
 }
 
-TEST_CASE("v2: multi-limb division known answers and invariant", "[unit][bigint2]") {
+TEST_CASE("v2: multi-limb division known answers and invariant", "[unit][bigint]") {
     // (2^128 - 1) = (2^64 + 1)(2^64 - 1) exactly
     BigInt a("ffffffffffffffffffffffffffffffff", 16);
     BigInt b("10000000000000001", 16);
@@ -203,7 +201,7 @@ TEST_CASE("v2: multi-limb division known answers and invariant", "[unit][bigint2
     }
 }
 
-TEST_CASE("v2: to_string round-trips", "[unit][bigint2]") {
+TEST_CASE("v2: to_string round-trips", "[unit][bigint]") {
     REQUIRE(BigInt(0).to_string() == "0");
     REQUIRE(BigInt(42).to_string() == "42");
     REQUIRE(BigInt(-42).to_string() == "-42");
@@ -217,10 +215,7 @@ TEST_CASE("v2: to_string round-trips", "[unit][bigint2]") {
     REQUIRE(BigInt("100000000000000000000", 10).to_string() == "100000000000000000000");
 }
 
-TEST_CASE("v2: abs, squared, pow with legacy quirks", "[unit][bigint2]") {
-    using bigint2::abs;
-    using bigint2::pow;
-    using bigint2::squared;
+TEST_CASE("v2: abs, squared, pow with legacy quirks", "[unit][bigint]") {
     REQUIRE(abs(BigInt(-9)) == 9LL);
     REQUIRE(abs(BigInt(9)) == 9LL);
     REQUIRE(squared(BigInt(-12)) == 144LL);
@@ -238,8 +233,7 @@ TEST_CASE("v2: abs, squared, pow with legacy quirks", "[unit][bigint2]") {
     REQUIRE_THROWS_AS(pow(BigInt(0), 0), std::logic_error);
 }
 
-TEST_CASE("v2: modular inverse against secp256k1 fixtures", "[unit][bigint2]") {
-    using bigint2::inverse;
+TEST_CASE("v2: modular inverse against secp256k1 fixtures", "[unit][bigint]") {
     const BigInt P(std::string(
         "115792089237316195423570985008687907853269984665640564039457584007908834671663"));
     // inverse(a, P) * a = 1 (mod P), result normalized into [0, P)
