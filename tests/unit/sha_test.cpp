@@ -11,13 +11,10 @@ TEST_CASE("SHA256 passes NIST short vectors (empty, abc)", "[unit][sha]") {
     }
 }
 
-TEST_CASE("SHA256 passes NIST 448-bit vector", "[unit][sha][!mayfail]") {
-    // [!mayfail] — discovered bug: SHA256::hash produces wrong digest for
-    // 56-byte input. The 56-byte edge case exercises the two-block padding
-    // path (message length mod 64 in [56, 63]) where an additional full
-    // block of padding is required. Other short vectors (<=55 bytes) and
-    // the 1,000,000-a long vector (a clean multiple of 64) both pass, so
-    // the bug is localized to the message-length≡56..63 (mod 64) path.
+TEST_CASE("SHA256 passes NIST 448-bit vector", "[unit][sha]") {
+    // The 56-byte edge case exercises the two-block padding path (message
+    // length mod 64 in [56, 63]) where an additional full block of padding
+    // is required.
     const auto& v = test_vectors::nist_sha256[2];
     INFO("input: " << v.input);
     REQUIRE(SHA256::hash(v.input) == v.expected_hex);
