@@ -31,8 +31,7 @@ TEST_CASE("addTransaction rejects insufficient balance", "[unit][blockchain]") {
     REQUIRE(f.chain.getPendingTransactions().empty());
 }
 
-TEST_CASE("minePendingTransactions credits miner", "[unit][blockchain][!mayfail]") {
-    // [!mayfail] — depends on Block::mineBlock working (see block_test.cpp note).
+TEST_CASE("minePendingTransactions credits miner", "[unit][blockchain]") {
     MinedChainFixture f;
     f.seedFunds("alice", 100.0, "miner_1");
     REQUIRE(f.chain.getChainSize() == 2);

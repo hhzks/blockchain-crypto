@@ -23,10 +23,7 @@ TEST_CASE("addTransaction updates merkle root", "[unit][block]") {
 }
 
 TEST_CASE("mineBlock at difficulty 2 produces PoW-satisfying hash",
-          "[unit][block][!mayfail]") {
-    // [!mayfail] — spec §4 discovered bug: Block::mineBlock builds the PoW
-    // target with 'x' instead of '0' (src/Block.cpp), so the loop never
-    // terminates against hex hashes. Remove the flag once mineBlock targets '0'.
+          "[unit][block]") {
     Block b(0, "0", 2);
     auto tx = std::make_shared<Transaction>("system", "miner", 50.0);
     b.addTransaction(tx);
@@ -36,8 +33,7 @@ TEST_CASE("mineBlock at difficulty 2 produces PoW-satisfying hash",
 }
 
 TEST_CASE("isValid catches merkle-root tampering via tx mutation",
-          "[unit][block][!mayfail]") {
-    // See previous test's [!mayfail] note — this test depends on mining working.
+          "[unit][block]") {
     Block b(0, "0", 2);
     b.addTransaction(std::make_shared<Transaction>("system", "alice", 10.0));
     b.mineBlock();

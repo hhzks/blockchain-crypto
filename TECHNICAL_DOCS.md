@@ -266,5 +266,5 @@ ctest --test-dir build --output-on-failure
 
 **Test labels:** `ctest -L unit` runs unit tests only; `ctest -L integration` runs integration tests. P2P tests require serial execution (`-j1`).
 
-**Known-failing tests** are tagged `[!mayfail]` and documented in `docs/superpowers/specs/2026-04-19-test-suite-design.md` §4. They expose real defects in the codebase (signature drop on deserialize, difficulty-model inconsistency, mineBlock target string bug) and are expected to stay red until those are fixed.
+**Bug-gated tests:** the defects documented in `docs/superpowers/specs/2026-04-19-test-suite-design.md` §4 (SHA-256 padding, signature/timestamp drop on deserialize, save-path handling, difficulty-model inconsistency, mineBlock target string) have been fixed, and their formerly `[!mayfail]`-tagged tests now run as regular must-pass tests. The one remaining `[!mayfail]` test is the P2P broadcast delivery test, which depends on loopback handshake timing.
 
