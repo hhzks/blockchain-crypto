@@ -216,3 +216,47 @@ TEST_CASE("v2: to_string round-trips", "[unit][bigint2]") {
     // Interior zero chunks must be zero-padded
     REQUIRE(BigInt("100000000000000000000", 10).to_string() == "100000000000000000000");
 }
+
+TEST_CASE("v2: abs, squared, pow with legacy quirks", "[unit][bigint2]") {
+    using bigint2::abs;
+    using bigint2::pow;
+    using bigint2::squared;
+    REQUIRE(abs(BigInt(-9)) == 9LL);
+    REQUIRE(abs(BigInt(9)) == 9LL);
+    REQUIRE(squared(BigInt(-12)) == 144LL);
+    REQUIRE(pow(BigInt(2), 10) == 1024LL);
+    REQUIRE(pow(BigInt(-2), 3) == -8LL);
+    REQUIRE(pow(BigInt(7), 1) == 7LL);
+    REQUIRE(pow(BigInt(2), 128) ==
+            BigInt(std::string("340282366920938463463374607431768211456")));
+    // Legacy quirks preserved from the old header:
+    REQUIRE(pow(BigInt(5), 0) == 1LL);
+    REQUIRE(pow(BigInt(5), -2) == 0LL);
+    REQUIRE(pow(BigInt(-1), -3) == -1LL);   // returns base when |base| == 1
+    REQUIRE(pow(BigInt(1), -3) == 1LL);
+    REQUIRE_THROWS_AS(pow(BigInt(0), -1), std::logic_error);
+    REQUIRE_THROWS_AS(pow(BigInt(0), 0), std::logic_error);
+}
+
+TEST_CASE("v2: modular inverse against secp256k1 fixtures", "[unit][bigint2]") {
+    using bigint2::inverse;
+    const BigInt P(std::string(
+        "115792089237316195423570985008687907853269984665640564039457584007908834671663"));
+    // inverse(a, P) * a = 1 (mod P), result normalized into [0, P)
+    for (long long a : {2LL, 3LL, 65537LL}) {
+        BigInt inv = inverse(BigInt(a), P);
+        REQUIRE(inv > 0LL);
+        REQUIRE(inv < P);
+        REQUIRE((inv * BigInt(a)) % P == 1LL);
+    }
+    // Negative input is normalized first (the ECC point math passes
+    // coordinate differences that can be negative).
+    BigInt inv_neg = inverse(BigInt(-5), BigInt(17));
+    REQUIRE(inv_neg == 10LL);                        // (-5 mod 17) = 12; 12*10 = 120 = 1 (mod 17)
+    REQUIRE((inv_neg * (BigInt(-5) % BigInt(17))) % BigInt(17) == 1LL);
+    // Large fixture: inverse of a 256-bit value
+    BigInt gx(std::string(
+        "55066263022277343669578718895168534326250603453777594175500187360389116729240"));
+    BigInt inv_gx = inverse(gx, P);
+    REQUIRE((inv_gx * gx) % P == 1LL);
+}

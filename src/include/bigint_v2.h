@@ -421,4 +421,55 @@ public:
     }
 };
 
+inline BigInt abs(const BigInt& num) {
+    return num < 0 ? -num : num;
+}
+
+// Preserves the legacy contract: negative exponents return `base` when
+// |base| == 1, otherwise 0 (integer reciprocal); 0^0 and 0^-n throw.
+inline BigInt pow(const BigInt& base, int exp) {
+    if (exp < 0) {
+        if (base == 0)
+            throw std::logic_error("Cannot divide by zero");
+        return abs(base) == 1 ? base : BigInt(0);
+    }
+    if (exp == 0) {
+        if (base == 0)
+            throw std::logic_error("Zero cannot be raised to zero");
+        return BigInt(1);
+    }
+    BigInt result(1);
+    BigInt b = base;
+    while (exp > 0) {
+        if (exp & 1) result *= b;
+        exp >>= 1;
+        if (exp != 0) b *= b;
+    }
+    return result;
+}
+
+inline BigInt squared(const BigInt& base) {
+    return base * base;
+}
+
+// Modular inverse via the extended Euclidean algorithm. The input is
+// reduced with floored % first, so negative `a` works; the result is
+// normalized into [0, mod) the same way.
+inline BigInt inverse(const BigInt& a, const BigInt& mod) {
+    BigInt temp_mod = mod;
+    BigInt temp_a = a % mod;
+    BigInt y_prev(0);
+    BigInt y(1);
+    while (temp_a > 1) {
+        BigInt q = temp_mod / temp_a;
+        BigInt y_next = y_prev - q * y;
+        y_prev = y;
+        y = y_next;
+        BigInt r = temp_mod % temp_a;
+        temp_mod = temp_a;
+        temp_a = r;
+    }
+    return y % mod;
+}
+
 } // namespace bigint2
