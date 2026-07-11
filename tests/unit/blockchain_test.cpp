@@ -44,6 +44,17 @@ TEST_CASE("isChainValid is true for fresh genesis-only chain", "[unit][blockchai
     REQUIRE(f.chain.isChainValid());
 }
 
+TEST_CASE("isChainValid accepts blocks mined within the same second",
+          "[unit][blockchain]") {
+    // Timestamps have second granularity; consecutive fast-mined blocks
+    // share a timestamp and must still validate.
+    MinedChainFixture f;
+    f.seedFunds("alice", 100.0, "miner_1");
+    f.seedFunds("bob", 100.0, "miner_1");
+    REQUIRE(f.chain.getChainSize() == 3);
+    REQUIRE(f.chain.isChainValid());
+}
+
 TEST_CASE("saveToFile/loadFromFile roundtrip preserves chain size",
           "[unit][blockchain][!mayfail]") {
     // [!mayfail] — spec §4 bug #4: saveToFile hardcodes "blockchain_saves/" prefix.

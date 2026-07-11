@@ -173,8 +173,10 @@ bool Blockchain::isChainValid() const {
             return false;
         }
         
-        // Verify timestamp is reasonable (prevent time manipulation)
-        if (currentBlock->getTimestamp() <= previousBlock->getTimestamp()) {
+        // Verify timestamp is reasonable (prevent time manipulation).
+        // Equal timestamps are allowed: timestamps have second granularity
+        // and consecutive blocks can be mined within the same second.
+        if (currentBlock->getTimestamp() < previousBlock->getTimestamp()) {
             std::cout << "Block " << i << " has invalid timestamp" << std::endl;
             return false;
         }
