@@ -142,3 +142,77 @@ TEST_CASE("v2: to_binary_string", "[unit][bigint2]") {
     BigInt p("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16);
     REQUIRE(BigInt(p.to_binary_string(), 2) == p);
 }
+
+TEST_CASE("v2: floored division and modulo across all sign combinations", "[unit][bigint2]") {
+    // Floored: quotient rounds toward negative infinity, remainder has
+    // the divisor's sign. (Python semantics; the ECC layer depends on it.)
+    REQUIRE(BigInt(7)  / BigInt(3)  == 2LL);
+    REQUIRE(BigInt(7)  % BigInt(3)  == 1LL);
+    REQUIRE(BigInt(-7) / BigInt(3)  == -3LL);
+    REQUIRE(BigInt(-7) % BigInt(3)  == 2LL);
+    REQUIRE(BigInt(7)  / BigInt(-3) == -3LL);
+    REQUIRE(BigInt(7)  % BigInt(-3) == -2LL);
+    REQUIRE(BigInt(-7) / BigInt(-3) == 2LL);
+    REQUIRE(BigInt(-7) % BigInt(-3) == -1LL);
+    // Exact multiples: no floored adjustment
+    REQUIRE(BigInt(-6) / BigInt(3) == -2LL);
+    REQUIRE(BigInt(-6) % BigInt(3) == 0LL);
+    // |dividend| < |divisor|
+    REQUIRE(BigInt(2) / BigInt(5) == 0LL);
+    REQUIRE(BigInt(-2) / BigInt(5) == -1LL);
+    REQUIRE(BigInt(-2) % BigInt(5) == 3LL);
+    // long long overloads
+    REQUIRE(BigInt(-7) % 3LL == 2LL);
+    REQUIRE(BigInt(255) / 16LL == 15LL);
+    // Invariant a == (a/b)*b + a%b on mixed signs
+    BigInt a(-97), b(13);
+    REQUIRE((a / b) * b + (a % b) == a);
+    REQUIRE_THROWS_AS(BigInt(1) / BigInt(0), std::logic_error);
+    REQUIRE_THROWS_AS(BigInt(1) % BigInt(0), std::logic_error);
+}
+
+TEST_CASE("v2: multi-limb division known answers and invariant", "[unit][bigint2]") {
+    // (2^128 - 1) = (2^64 + 1)(2^64 - 1) exactly
+    BigInt a("ffffffffffffffffffffffffffffffff", 16);
+    BigInt b("10000000000000001", 16);
+    REQUIRE(a / b == BigInt("ffffffffffffffff", 16));
+    REQUIRE(a % b == 0LL);
+    // Adversarial: minimal normalized divisor, near-maximal quotient.
+    // Construct dividend = q*d + r from parts, then require exact recovery.
+    BigInt d("8000000000000000ffffffffffffffff", 16);
+    BigInt q("ffffffffffffffffffffffffffffffff", 16);
+    BigInt r = d - BigInt(1);
+    BigInt dividend = q * d + r;
+    REQUIRE(dividend / d == q);
+    REQUIRE(dividend % d == r);
+    // Pseudo-random breadth: deterministic LCG, invariant must hold.
+    uint64_t seed = 0x2545F4914F6CDD1DULL;
+    auto next = [&seed]() {
+        seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
+        return seed;
+    };
+    for (int i = 0; i < 200; ++i) {
+        BigInt x = (BigInt(static_cast<long long>(next() >> 1)) * BigInt(static_cast<long long>(next() >> 1)) +
+                    BigInt(static_cast<long long>(next() >> 1))) * BigInt(static_cast<long long>(next() >> 1));
+        BigInt y = BigInt(static_cast<long long>(next() >> 1)) * BigInt(static_cast<long long>(next() >> 1)) + BigInt(1);
+        BigInt quot = x / y;
+        BigInt rem = x % y;
+        REQUIRE(quot * y + rem == x);
+        REQUIRE(rem >= 0LL);
+        REQUIRE(rem < y);
+    }
+}
+
+TEST_CASE("v2: to_string round-trips", "[unit][bigint2]") {
+    REQUIRE(BigInt(0).to_string() == "0");
+    REQUIRE(BigInt(42).to_string() == "42");
+    REQUIRE(BigInt(-42).to_string() == "-42");
+    REQUIRE(BigInt(10000000000000000000ULL % 9223372036854775807LL).to_string()
+            == "776627963145224193");
+    const std::string p_dec =
+        "115792089237316195423570985008687907853269984665640564039457584007908834671663";
+    REQUIRE(BigInt(p_dec).to_string() == p_dec);
+    REQUIRE(BigInt(std::string("-") + p_dec).to_string() == "-" + p_dec);
+    // Interior zero chunks must be zero-padded
+    REQUIRE(BigInt("100000000000000000000", 10).to_string() == "100000000000000000000");
+}

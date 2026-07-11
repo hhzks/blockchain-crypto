@@ -125,6 +125,106 @@ private:
         return -1;
     }
 
+    // Magnitude division: q = a / b, r = a % b (truncating, magnitudes only).
+    // Precondition: b is normalized and non-empty (checked by callers).
+    static void divModMagnitude(const std::vector<uint64_t>& a,
+                                const std::vector<uint64_t>& b,
+                                std::vector<uint64_t>& quotient,
+                                std::vector<uint64_t>& remainder) {
+        quotient.clear();
+        remainder.clear();
+        if (compareMagnitude(a, b) < 0) {
+            remainder = a;
+            return;
+        }
+
+        if (b.size() == 1) {
+            const uint64_t d = b[0];
+            quotient.assign(a.size(), 0);
+            unsigned __int128 rem = 0;
+            for (size_t i = a.size(); i-- > 0;) {
+                unsigned __int128 cur = (rem << 64) | a[i];
+                quotient[i] = static_cast<uint64_t>(cur / d);
+                rem = cur % d;
+            }
+            if (rem != 0) remainder.push_back(static_cast<uint64_t>(rem));
+            while (!quotient.empty() && quotient.back() == 0) quotient.pop_back();
+            return;
+        }
+
+        // Knuth Algorithm D. Normalize so the divisor's top bit is set,
+        // divide limb-by-limb with a two-limb trial quotient, correct it
+        // (at most twice), multiply-subtract, and denormalize the remainder.
+        const size_t n = b.size();
+        const size_t m = a.size() - n;
+        const int shift = std::countl_zero(b.back());
+        const unsigned __int128 BASE = static_cast<unsigned __int128>(1) << 64;
+
+        std::vector<uint64_t> vn(n);
+        std::vector<uint64_t> un(a.size() + 1, 0);
+        for (size_t i = n; i-- > 0;) {
+            vn[i] = b[i] << shift;
+            if (shift != 0 && i > 0) vn[i] |= b[i - 1] >> (64 - shift);
+        }
+        for (size_t i = a.size(); i-- > 0;) {
+            un[i] = a[i] << shift;
+            if (shift != 0 && i > 0) un[i] |= a[i - 1] >> (64 - shift);
+        }
+        if (shift != 0) un[a.size()] = a.back() >> (64 - shift);
+
+        quotient.assign(m + 1, 0);
+        for (size_t j = m + 1; j-- > 0;) {
+            unsigned __int128 numerator =
+                (static_cast<unsigned __int128>(un[j + n]) << 64) | un[j + n - 1];
+            unsigned __int128 qhat = numerator / vn[n - 1];
+            unsigned __int128 rhat = numerator % vn[n - 1];
+            while (qhat >= BASE ||
+                   qhat * vn[n - 2] > ((rhat << 64) | un[j + n - 2])) {
+                --qhat;
+                rhat += vn[n - 1];
+                if (rhat >= BASE) break;
+            }
+
+            // un[j .. j+n] -= qhat * vn[0 .. n-1]
+            unsigned __int128 mul_carry = 0;
+            __int128 borrow = 0;
+            for (size_t i = 0; i < n; ++i) {
+                unsigned __int128 product = qhat * vn[i] + mul_carry;
+                mul_carry = product >> 64;
+                __int128 diff = static_cast<__int128>(un[i + j]) -
+                                static_cast<uint64_t>(product) - borrow;
+                borrow = diff < 0 ? 1 : 0;
+                un[i + j] = static_cast<uint64_t>(diff);   // wraps mod 2^64
+            }
+            __int128 top = static_cast<__int128>(un[j + n]) -
+                           static_cast<__int128>(mul_carry) - borrow;
+            un[j + n] = static_cast<uint64_t>(top);
+
+            if (top < 0) {
+                // qhat was one too large: add the divisor back.
+                --qhat;
+                unsigned __int128 carry = 0;
+                for (size_t i = 0; i < n; ++i) {
+                    unsigned __int128 sum =
+                        static_cast<unsigned __int128>(un[i + j]) + vn[i] + carry;
+                    un[i + j] = static_cast<uint64_t>(sum);
+                    carry = sum >> 64;
+                }
+                un[j + n] = static_cast<uint64_t>(
+                    static_cast<unsigned __int128>(un[j + n]) + carry);
+            }
+            quotient[j] = static_cast<uint64_t>(qhat);
+        }
+
+        remainder.assign(n, 0);
+        for (size_t i = 0; i < n; ++i) {
+            remainder[i] = un[i] >> shift;
+            if (shift != 0) remainder[i] |= un[i + 1] << (64 - shift);
+        }
+        while (!remainder.empty() && remainder.back() == 0) remainder.pop_back();
+        while (!quotient.empty() && quotient.back() == 0) quotient.pop_back();
+    }
+
 public:
     BigInt() = default;
     BigInt(const BigInt&) = default;
@@ -265,6 +365,60 @@ public:
 
     BigInt operator*(const long long& num) const { return *this * BigInt(num); }
     BigInt& operator*=(const BigInt& num) { return *this = *this * num; }
+
+    BigInt operator/(const BigInt& num) const {
+        if (num.isZero())
+            throw std::logic_error("Attempted division by zero");
+        BigInt q, r;
+        divModMagnitude(limbs, num.limbs, q.limbs, r.limbs);
+        q.negative = (negative != num.negative) && !q.limbs.empty();
+        // Floored: when signs differ and division is inexact, round down.
+        if (negative != num.negative && !r.limbs.empty()) q = q - BigInt(1);
+        q.normalize();
+        return q;
+    }
+
+    BigInt operator%(const BigInt& num) const {
+        if (num.isZero())
+            throw std::logic_error("Attempted division by zero");
+        BigInt q, r;
+        divModMagnitude(limbs, num.limbs, q.limbs, r.limbs);
+        r.negative = negative && !r.limbs.empty();
+        // Floored: remainder takes the divisor's sign.
+        if (!r.limbs.empty() && r.negative != num.negative) r = r + num;
+        r.normalize();
+        return r;
+    }
+
+    BigInt operator/(const long long& num) const { return *this / BigInt(num); }
+    BigInt operator%(const long long& num) const { return *this % BigInt(num); }
+    BigInt& operator/=(const BigInt& num) { return *this = *this / num; }
+    BigInt& operator%=(const BigInt& num) { return *this = *this % num; }
+    BigInt& operator/=(const long long& num) { return *this = *this / BigInt(num); }
+
+    std::string to_string() const {
+        if (isZero()) return "0";
+        // Peel 19 decimal digits at a time with the single-limb fast path.
+        constexpr uint64_t chunk = 10000000000000000000ULL;   // 10^19
+        std::vector<uint64_t> mag = limbs;
+        std::vector<uint64_t> chunks;
+        while (!mag.empty()) {
+            unsigned __int128 rem = 0;
+            for (size_t i = mag.size(); i-- > 0;) {
+                unsigned __int128 cur = (rem << 64) | mag[i];
+                mag[i] = static_cast<uint64_t>(cur / chunk);
+                rem = cur % chunk;
+            }
+            while (!mag.empty() && mag.back() == 0) mag.pop_back();
+            chunks.push_back(static_cast<uint64_t>(rem));
+        }
+        std::string out = std::to_string(chunks.back());
+        for (size_t i = chunks.size() - 1; i-- > 0;) {
+            std::string part = std::to_string(chunks[i]);
+            out += std::string(19 - part.size(), '0') + part;
+        }
+        return negative ? "-" + out : out;
+    }
 };
 
 } // namespace bigint2
