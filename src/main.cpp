@@ -1,6 +1,7 @@
 #include "include/Blockchain.h"
 #include "include/Transaction.h"
 #include "include/P2PNode.h"
+#include "include/utils.h"
 #include <iostream>
 #include <memory>
 #include <string>
@@ -228,7 +229,11 @@ int main() {
                 std::cin >> amount;
                 
                 auto transaction = std::make_shared<Transaction>(sender, receiver, amount);
-                transaction->signTransaction(sender + "_private_key");
+                // Demo key management: derive a deterministic 32-byte private
+                // key from the sender name. The previous scheme passed a raw
+                // string that failed hex parsing, so no transaction could
+                // ever be signed.
+                transaction->signTransaction(utils::sha256(sender + "_private_key"));
                 blockchain.addTransaction(transaction);
                 break;
             }

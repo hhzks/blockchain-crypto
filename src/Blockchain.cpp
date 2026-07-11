@@ -15,9 +15,9 @@ Blockchain::Blockchain(int initial_difficulty, double initial_reward)
 }
 
 std::shared_ptr<Block> Blockchain::createGenesisBlock() {
+    // The genesis block carries no transactions: a zero-amount marker tx
+    // would be rejected by Block::addTransaction's validity check anyway.
     auto genesis = std::make_shared<Block>(0, "0", difficulty);
-    auto genesis_tx = std::make_shared<Transaction>("system", "genesis", 0);
-    genesis->addTransaction(genesis_tx);
     genesis->mineBlock();
     std::cout << "Genesis block created!" << std::endl;
     return genesis;
