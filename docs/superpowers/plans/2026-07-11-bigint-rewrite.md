@@ -246,11 +246,19 @@ TEST_CASE("v2: addition and subtraction, small values, all signs", "[unit][bigin
 
 TEST_CASE("v2: addition carries across the 64-bit limb boundary", "[unit][bigint2]") {
     const long long max = 9223372036854775807LL;   // 2^63 - 1
-    BigInt sum = BigInt(max) + BigInt(max);        // 2^64 - 2: needs two limbs
+    BigInt sum = BigInt(max) + BigInt(max);        // 2^64 - 2: still one limb
     REQUIRE(sum > BigInt(max));
-    REQUIRE(sum - BigInt(max) == max);             // round-trips through borrow
-    BigInt back = sum - BigInt(max) - BigInt(max);
+    REQUIRE(sum - BigInt(max) == max);
+    // max + max + 2 = 2^64 exactly: carry-out forces a second limb
+    BigInt two_limbs = sum + BigInt(2);
+    REQUIRE(two_limbs > sum);
+    // Borrow back across the boundary and normalize away the high limb
+    REQUIRE(two_limbs - BigInt(1) > sum);           // 2^64 - 1: one limb again
+    REQUIRE(two_limbs - BigInt(2) == sum);          // full round trip
+    // Mismatched limb counts (two-limb minus one-limb) and down to zero
+    BigInt back = two_limbs - BigInt(max) - BigInt(max) - BigInt(2);
     REQUIRE(back == 0LL);
+    REQUIRE(two_limbs + BigInt(max) - BigInt(max) == two_limbs);
 }
 
 TEST_CASE("v2: compound add/subtract assign", "[unit][bigint2]") {
