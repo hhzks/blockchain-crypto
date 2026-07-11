@@ -15,6 +15,7 @@ set(TEST_SOURCES
     unit/utils_test.cpp
     unit/sha_test.cpp
     unit/bigint_test.cpp
+    unit/bigint_v2_test.cpp
     unit/eccrypto_test.cpp
     unit/transaction_test.cpp
     unit/block_test.cpp
