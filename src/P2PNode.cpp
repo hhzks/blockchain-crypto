@@ -80,7 +80,7 @@ bool Peer::receive(Message& msg) {
 }
 
 P2PNode::P2PNode(Blockchain* chain, const P2PConfig& cfg)
-    : blockchain(chain), config(cfg), listen_socket(INVALID_SOCK),
+    : config(cfg), blockchain(chain), listen_socket(INVALID_SOCK),
       running(false), syncing(false) {
     node_id = generateNodeId();
 }
@@ -608,13 +608,11 @@ void P2PNode::handleMessage(std::shared_ptr<Peer> peer, const Message& msg) {
 void P2PNode::handleHandshake(std::shared_ptr<Peer> peer, const Message& msg) {
     std::istringstream iss(msg.getPayload());
     std::string peer_node_id, version;
-    uint16_t peer_port;
     int64_t peer_height;
-    
+
     std::getline(iss, peer_node_id, '|');
     std::string token;
-    std::getline(iss, token, '|');
-    peer_port = static_cast<uint16_t>(std::stoi(token));
+    std::getline(iss, token, '|'); // peer_port — unused; connection is already established
     std::getline(iss, token, '|');
     peer_height = std::stoll(token);
     std::getline(iss, version, '|');
@@ -951,6 +949,16 @@ void P2PNode::log(const std::string& message) {
     } else {
         std::println("{}", log_msg);
     }
+}
+
+uint16_t P2PNode::getActualListenPort() const {
+    if (listen_socket == INVALID_SOCK) return 0;
+    sockaddr_in addr{};
+    socklen_t len = sizeof(addr);
+    if (getsockname(listen_socket, reinterpret_cast<sockaddr*>(&addr), &len) != 0) {
+        return 0;
+    }
+    return ntohs(addr.sin_port);
 }
 
 }

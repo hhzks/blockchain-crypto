@@ -18,11 +18,18 @@ private:
 
 public:
     Block(int idx, const std::string& prev_hash, int block_difficulty);
+    // Restore constructor for deserialization: preserves the original
+    // timestamp instead of stamping the current time.
+    Block(int idx, const std::string& prev_hash, int block_difficulty,
+          long long block_timestamp);
 
     void addTransaction(std::shared_ptr<Transaction> transaction);
     std::string calculateHash() const;
     void mineBlock();
     void calculateMerkleRoot();
+    // Restore a previously mined block's nonce and hash after its
+    // transactions have been re-added.
+    void setMinedState(int mined_nonce, const std::string& mined_hash);
 
     int getIndex() const { return index; }
     long long getTimestamp() const { return timestamp; }

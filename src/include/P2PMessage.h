@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <sstream>
 #include <memory>
+#include <format>
 #include "Block.h"
 #include "Transaction.h"
 
@@ -253,24 +254,24 @@ public:
         for (const auto& tx : txs) {
             oss << "|" << tx->getSender()
                 << "," << tx->getReceiver()
-                << "," << tx->getAmount()
+                << "," << std::format("{:.8f}", tx->getAmount())
                 << "," << tx->getTimestamp()
                 << "," << tx->getSignature();
         }
-        
+
         return oss.str();
     }
-    
+
     static std::shared_ptr<Block> deserialize(const std::string& data) {
         std::istringstream iss(data);
         std::string token;
-        
+
         int index;
         long long timestamp;
         std::string prev_hash, hash, merkle_root;
         int difficulty, nonce;
         size_t tx_count;
-        
+
         std::getline(iss, token, '|'); index = std::stoi(token);
         std::getline(iss, token, '|'); timestamp = std::stoll(token);
         std::getline(iss, prev_hash, '|');
@@ -279,28 +280,30 @@ public:
         std::getline(iss, token, '|'); difficulty = std::stoi(token);
         std::getline(iss, token, '|'); nonce = std::stoi(token);
         std::getline(iss, token, '|'); tx_count = std::stoull(token);
-        
-        auto block = std::make_shared<Block>(index, prev_hash, difficulty);
-        
+
+        auto block = std::make_shared<Block>(index, prev_hash, difficulty, timestamp);
+
         for (size_t i = 0; i < tx_count; ++i) {
             std::string tx_data;
             std::getline(iss, tx_data, '|');
-            
+
             std::istringstream tx_stream(tx_data);
             std::string sender, receiver, sig;
             double amount;
             long long tx_timestamp;
-            
+
             std::getline(tx_stream, sender, ',');
             std::getline(tx_stream, receiver, ',');
             std::getline(tx_stream, token, ','); amount = std::stod(token);
             std::getline(tx_stream, token, ','); tx_timestamp = std::stoll(token);
             std::getline(tx_stream, sig, ',');
-            
-            auto tx = std::make_shared<Transaction>(sender, receiver, amount);
+
+            auto tx = std::make_shared<Transaction>(sender, receiver, amount,
+                                                    tx_timestamp, sig);
             block->addTransaction(tx);
         }
-        
+
+        block->setMinedState(nonce, hash);
         return block;
     }
 };
@@ -311,26 +314,26 @@ public:
         std::ostringstream oss;
         oss << tx.getSender() << "|"
             << tx.getReceiver() << "|"
-            << tx.getAmount() << "|"
+            << std::format("{:.8f}", tx.getAmount()) << "|"
             << tx.getTimestamp() << "|"
             << tx.getSignature();
         return oss.str();
     }
-    
+
     static std::shared_ptr<Transaction> deserialize(const std::string& data) {
         std::istringstream iss(data);
         std::string sender, receiver, sig, token;
         double amount;
         long long timestamp;
-        
+
         std::getline(iss, sender, '|');
         std::getline(iss, receiver, '|');
         std::getline(iss, token, '|'); amount = std::stod(token);
         std::getline(iss, token, '|'); timestamp = std::stoll(token);
         std::getline(iss, sig, '|');
-        
-        auto tx = std::make_shared<Transaction>(sender, receiver, amount);
-        return tx;
+
+        return std::make_shared<Transaction>(sender, receiver, amount,
+                                             timestamp, sig);
     }
 };
 

@@ -9,6 +9,12 @@ Transaction::Transaction(const std::string& from, const std::string& to, double 
     signature = "";
 }
 
+Transaction::Transaction(const std::string& from, const std::string& to, double value,
+                         long long tx_timestamp, const std::string& tx_signature)
+    : sender(from), receiver(to), amount(value), timestamp(tx_timestamp),
+      signature(tx_signature) {
+}
+
 std::string Transaction::calculateHash() const {
     return utils::sha256(std::format("{}:{}:{:.8f}:{}", sender, receiver, amount, timestamp));
 }

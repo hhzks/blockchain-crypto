@@ -4,12 +4,22 @@
 #include <iostream>
 #include <chrono>
 
-Block::Block(int idx, const std::string& prev_hash, int block_difficulty) 
-    : index(idx), timestamp(utils::getCurrentTimestamp()), previous_hash(prev_hash), 
+Block::Block(int idx, const std::string& prev_hash, int block_difficulty)
+    : Block(idx, prev_hash, block_difficulty, utils::getCurrentTimestamp()) {
+}
+
+Block::Block(int idx, const std::string& prev_hash, int block_difficulty,
+             long long block_timestamp)
+    : index(idx), timestamp(block_timestamp), previous_hash(prev_hash),
       difficulty(block_difficulty), nonce(0) {
     hash = "";
     merkle_root = "";
     calculateMerkleRoot();
+}
+
+void Block::setMinedState(int mined_nonce, const std::string& mined_hash) {
+    nonce = mined_nonce;
+    hash = mined_hash;
 }
 
 void Block::addTransaction(std::shared_ptr<Transaction> transaction) {
@@ -34,21 +44,20 @@ std::string Block::calculateHash() const {
 void Block::mineBlock() {
     std::cout << "Mining block " << index << " with difficulty " << difficulty << "..." << std::endl;
     
-    std::string target(difficulty, '0');
     nonce = 0;
-    
+
     auto start = std::chrono::high_resolution_clock::now();
-    
+
     do {
         nonce++;
         hash = calculateHash();
-        
+
         // Print progress every 100000 attempts
         if (nonce % 100000 == 0) {
             std::cout << "Nonce: " << nonce << ", Hash: " << hash.substr(0, 20) << "..." << std::endl;
         }
-        
-    } while (hash.substr(0, difficulty) != target);
+
+    } while (!utils::checkProofOfWork(hash, difficulty));
     
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);

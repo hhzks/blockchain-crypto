@@ -99,9 +99,9 @@ namespace SHA256 {
         }
         
         size_t totalBits = length * 8;
-        size_t paddingBits = (448 - (totalBits % 512) + 512) % 512;
-        size_t paddingBytes = paddingBits / 8;
-        size_t totalLength = length + paddingBytes + 8;
+        // Padded size: message + mandatory 0x80 separator byte + 8-byte
+        // length field, rounded up to the 64-byte block size.
+        size_t totalLength = ((length + 1 + 8 + 63) / 64) * 64;
         
         std::vector<uint8_t> paddedMessage(totalLength);
         std::memcpy(paddedMessage.data(), data, length);

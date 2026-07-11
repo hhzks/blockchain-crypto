@@ -3,15 +3,21 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <format>
 
-Blockchain::Blockchain() : difficulty(4), mining_reward(100.0) {
+Blockchain::Blockchain() : difficulty(INITIAL_DIFFICULTY), mining_reward(100.0) {
+    chain.push_back(createGenesisBlock());
+}
+
+Blockchain::Blockchain(int initial_difficulty, double initial_reward)
+    : difficulty(initial_difficulty), mining_reward(initial_reward) {
     chain.push_back(createGenesisBlock());
 }
 
 std::shared_ptr<Block> Blockchain::createGenesisBlock() {
-    auto genesis = std::make_shared<Block>(0, "0", INITIAL_DIFFICULTY);
-    auto genesis_tx = std::make_shared<Transaction>("system", "genesis", 0);
-    genesis->addTransaction(genesis_tx);
+    // The genesis block carries no transactions: a zero-amount marker tx
+    // would be rejected by Block::addTransaction's validity check anyway.
+    auto genesis = std::make_shared<Block>(0, "0", difficulty);
     genesis->mineBlock();
     std::cout << "Genesis block created!" << std::endl;
     return genesis;
@@ -84,25 +90,7 @@ void Blockchain::minePendingTransactions(const std::string& reward_address) {
 }
 
 int Blockchain::calculateRequiredDifficulty() const {
-    if (chain.size() < DIFFICULTY_ADJUSTMENT_INTERVAL) {
-        return INITIAL_DIFFICULTY;
-    }
-    
-    size_t last_idx = chain.size() - DIFFICULTY_ADJUSTMENT_INTERVAL;
-    auto last_block = chain[last_idx];
-    auto latest = chain.back();
-    
-    long long expected = TARGET_BLOCK_TIME * DIFFICULTY_ADJUSTMENT_INTERVAL;
-    long long actual = latest->getTimestamp() - last_block->getTimestamp();
-    int current = latest->getDifficulty();
-    
-    if (actual < expected / 2) {
-        return current + 1;
-    } else if (actual > expected * 2) {
-        return std::max(1, current - 1);
-    }
-    
-    return current;
+    return calculateRequiredDifficultyAtHeight(static_cast<int>(chain.size()));
 }
 
 bool Blockchain::validateBlockDifficulty(const std::shared_ptr<Block>& block) const {
@@ -143,7 +131,7 @@ bool Blockchain::isChainValid() const {
     }
     
     // Validate genesis block
-    if (!chain[0]->isValidWithDifficulty(INITIAL_DIFFICULTY)) {
+    if (!chain[0]->isValidWithDifficulty(difficulty)) {
         std::cout << "Invalid genesis block" << std::endl;
         return false;
     }
@@ -168,8 +156,10 @@ bool Blockchain::isChainValid() const {
             return false;
         }
         
-        // Verify timestamp is reasonable (prevent time manipulation)
-        if (currentBlock->getTimestamp() <= previousBlock->getTimestamp()) {
+        // Verify timestamp is reasonable (prevent time manipulation).
+        // Equal timestamps are allowed: timestamps have second granularity
+        // and consecutive blocks can be mined within the same second.
+        if (currentBlock->getTimestamp() < previousBlock->getTimestamp()) {
             std::cout << "Block " << i << " has invalid timestamp" << std::endl;
             return false;
         }
@@ -199,16 +189,16 @@ void Blockchain::printChain() const {
 }
 
 bool Blockchain::saveToFile(const std::string& filename) const {
-    std::ofstream file("blockchain_saves/" + filename);
+    std::ofstream file(filename);
     if (!file.is_open()) {
         std::cout << "Failed to open file for writing: " << filename << std::endl;
         return false;
     }
-    
+
     file << difficulty << std::endl;
     file << mining_reward << std::endl;
     file << chain.size() << std::endl;
-    
+
     // Save each block
     for (const auto& block : chain) {
         file << block->getIndex() << std::endl;
@@ -218,19 +208,23 @@ bool Blockchain::saveToFile(const std::string& filename) const {
         file << block->getMerkleRoot() << std::endl;
         file << block->getDifficulty() << std::endl;
         file << block->getNonce() << std::endl;
-        
+
         const auto& transactions = block->getTransactions();
         file << transactions.size() << std::endl;
-        
+
         for (const auto& tx : transactions) {
             file << tx->getSender() << std::endl;
             file << tx->getReceiver() << std::endl;
-            file << tx->getAmount() << std::endl;
+            // Fixed precision matching Transaction::calculateHash so the
+            // reloaded amount reproduces the same hash.
+            file << std::format("{:.8f}", tx->getAmount()) << std::endl;
             file << tx->getTimestamp() << std::endl;
-            file << tx->getSignature() << std::endl;
+            // "-" sentinel: an empty signature line would be skipped by
+            // operator>> on load and corrupt the parse.
+            file << (tx->getSignature().empty() ? "-" : tx->getSignature()) << std::endl;
         }
     }
-    
+
     file.close();
     std::cout << "Blockchain saved to " << filename << std::endl;
     return true;
@@ -256,25 +250,37 @@ bool Blockchain::loadFromFile(const std::string& filename) {
         long long timestamp;
         std::string prev_hash, hash, merkle_root;
         int block_difficulty, nonce;
-        
+
         file >> index >> timestamp >> prev_hash >> hash >> merkle_root >> block_difficulty >> nonce;
-        
-        auto block = std::make_shared<Block>(index, prev_hash, block_difficulty);
-        
+
+        auto block = std::make_shared<Block>(index, prev_hash, block_difficulty, timestamp);
+
         size_t tx_count;
         file >> tx_count;
-        
+
         for (size_t j = 0; j < tx_count; j++) {
             std::string sender, receiver, signature;
             double amount;
             long long tx_timestamp;
-            
+
             file >> sender >> receiver >> amount >> tx_timestamp >> signature;
-            
-            auto tx = std::make_shared<Transaction>(sender, receiver, amount);
+            if (signature == "-") {
+                signature.clear();
+            }
+
+            auto tx = std::make_shared<Transaction>(sender, receiver, amount,
+                                                    tx_timestamp, signature);
             block->addTransaction(tx);
         }
-        
+
+        block->setMinedState(nonce, hash);
+
+        if (block->getMerkleRoot() != merkle_root) {
+            std::cout << "Merkle root mismatch in block " << index
+                      << " while loading " << filename << std::endl;
+            return false;
+        }
+
         chain.push_back(block);
     }
     
@@ -319,23 +325,26 @@ bool Blockchain::transactionExists(const std::shared_ptr<Transaction>& tx) const
     return false;
 }
 
+// Single source of truth for the difficulty required of the block at
+// `height`, replayed from the timing of the blocks below it. Mining
+// (via calculateRequiredDifficulty) and validation use this same rule.
 int Blockchain::calculateRequiredDifficultyAtHeight(int height) const {
-    if (height == 0) {
-        return INITIAL_DIFFICULTY; // Genesis block
-    }
-    
     if (height < DIFFICULTY_ADJUSTMENT_INTERVAL) {
-        return INITIAL_DIFFICULTY;
+        return difficulty;
     }
-    
-    // For blocks after the adjustment interval, we need to calculate based on timing
-    // In a real implementation, we'd recalculate difficulty as it would have been at that height
-    // For now, we'll simulate a progressive difficulty increase
-    
-    int adjustmentPeriods = height / DIFFICULTY_ADJUSTMENT_INTERVAL;
-    int baseDifficulty = INITIAL_DIFFICULTY;
-    
-    // Simple simulation: difficulty increases every adjustment period
-    // In reality, this would be calculated based on actual block timing at that height
-    return std::min(baseDifficulty + adjustmentPeriods, 6); // Cap at difficulty 6
+
+    const auto& interval_start = chain[height - DIFFICULTY_ADJUSTMENT_INTERVAL];
+    const auto& previous = chain[height - 1];
+
+    long long expected = TARGET_BLOCK_TIME * DIFFICULTY_ADJUSTMENT_INTERVAL;
+    long long actual = previous->getTimestamp() - interval_start->getTimestamp();
+    int current = previous->getDifficulty();
+
+    if (actual < expected / 2) {
+        return current + 1;
+    } else if (actual > expected * 2) {
+        return std::max(1, current - 1);
+    }
+
+    return current;
 }

@@ -18,7 +18,9 @@
     #define WIN32_LEAN_AND_MEAN
     #include <winsock2.h>
     #include <ws2tcpip.h>
-    #pragma comment(lib, "ws2_32.lib")
+    #ifdef _MSC_VER
+        #pragma comment(lib, "ws2_32.lib")
+    #endif
     using SocketType = SOCKET;
     #define INVALID_SOCK INVALID_SOCKET
     #define SOCKET_ERROR_CODE SOCKET_ERROR
@@ -179,6 +181,7 @@ public:
     std::vector<PeerInfo> getConnectedPeers() const;
     const std::string& getNodeId() const { return node_id; }
     uint16_t getPort() const { return config.listen_port; }
+    uint16_t getActualListenPort() const;
     
     void setCallbacks(const P2PCallbacks& cb) { callbacks = cb; }
     
