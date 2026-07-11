@@ -45,6 +45,42 @@ private:
         return negative ? -mag : mag;
     }
 
+    static std::vector<uint64_t> addMagnitude(const std::vector<uint64_t>& a,
+                                              const std::vector<uint64_t>& b) {
+        const size_t n = a.size() > b.size() ? a.size() : b.size();
+        std::vector<uint64_t> result;
+        result.reserve(n + 1);
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < n; ++i) {
+            unsigned __int128 sum = carry;
+            if (i < a.size()) sum += a[i];
+            if (i < b.size()) sum += b[i];
+            result.push_back(static_cast<uint64_t>(sum));
+            carry = sum >> 64;
+        }
+        if (carry != 0) result.push_back(static_cast<uint64_t>(carry));
+        return result;
+    }
+
+    // Requires |a| >= |b|.
+    static std::vector<uint64_t> subMagnitude(const std::vector<uint64_t>& a,
+                                              const std::vector<uint64_t>& b) {
+        std::vector<uint64_t> result(a.size());
+        __int128 borrow = 0;
+        for (size_t i = 0; i < a.size(); ++i) {
+            __int128 diff = static_cast<__int128>(a[i]) - borrow -
+                            (i < b.size() ? b[i] : 0);
+            if (diff < 0) {
+                diff += static_cast<__int128>(1) << 64;
+                borrow = 1;
+            } else {
+                borrow = 0;
+            }
+            result[i] = static_cast<uint64_t>(diff);
+        }
+        return result;
+    }
+
 public:
     BigInt() = default;
     BigInt(const BigInt&) = default;
@@ -94,6 +130,31 @@ public:
         return negative ? static_cast<int>(-static_cast<int64_t>(v))
                         : static_cast<int>(v);
     }
+
+    BigInt operator+(const BigInt& num) const {
+        BigInt result;
+        if (negative == num.negative) {
+            result.limbs = addMagnitude(limbs, num.limbs);
+            result.negative = negative;
+        } else {
+            int cmp = compareMagnitude(limbs, num.limbs);
+            if (cmp == 0) return BigInt();
+            if (cmp > 0) {
+                result.limbs = subMagnitude(limbs, num.limbs);
+                result.negative = negative;
+            } else {
+                result.limbs = subMagnitude(num.limbs, limbs);
+                result.negative = num.negative;
+            }
+        }
+        result.normalize();
+        return result;
+    }
+
+    BigInt operator-(const BigInt& num) const { return *this + (-num); }
+
+    BigInt& operator+=(const BigInt& num) { return *this = *this + num; }
+    BigInt& operator-=(const BigInt& num) { return *this = *this - num; }
 };
 
 } // namespace bigint2
