@@ -87,11 +87,12 @@ TEST_CASE("v2: multi-limb multiplication is consistent with addition", "[unit][b
     const long long max = 9223372036854775807LL;   // 2^63 - 1
     BigInt a(max);
     BigInt two_a = a + a;
-    REQUIRE(a * BigInt(2) == two_a);               // crosses into limb 2
+    REQUIRE(a * BigInt(2) == two_a);               // 2^64 - 2: still one limb
     BigInt sq = a * a;                              // 126-bit result
     REQUIRE(sq + sq == a * two_a);                  // 2*a^2 == a*(2a)
     REQUIRE(sq > two_a);
-    REQUIRE(a * a == a * a);                        // deterministic
+    REQUIRE(a * a ==
+            BigInt(std::string("85070591730234615847396907784232501249")));  // (2^63-1)^2
     BigInt x(3), acc;
     acc = sq + sq + sq;
     REQUIRE(sq * x == acc);                         // multiplication as repeated addition
@@ -104,6 +105,8 @@ TEST_CASE("v2: decimal and hex string construction", "[unit][bigint]") {
     REQUIRE(BigInt(std::string("42")) == 42LL);
     REQUIRE(BigInt(std::string("-42")) == -42LL);
     REQUIRE(BigInt(std::string("+42")) == 42LL);
+    REQUIRE(BigInt(std::string("-0")) == 0LL);
+    REQUIRE(BigInt(std::string("-0")).to_string() == "0");
     REQUIRE(BigInt("ff", 16) == 255LL);
     REQUIRE(BigInt("FF", 16) == 255LL);
     REQUIRE(BigInt("-ff", 16) == -255LL);
@@ -253,4 +256,40 @@ TEST_CASE("v2: modular inverse against secp256k1 fixtures", "[unit][bigint]") {
         "55066263022277343669578718895168534326250603453777594175500187360389116729240"));
     BigInt inv_gx = inverse(gx, P);
     REQUIRE((inv_gx * gx) % P == 1LL);
+}
+
+TEST_CASE("floored division with multi-limb operands across sign combinations",
+          "[unit][bigint]") {
+    const BigInt P("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16);
+    const BigInt a("123456789abcdef0fedcba9876543210deadbeefcafebabe0123456789abcdef", 16);
+    const BigInt zero(0);
+
+    // The ECC layer depends on (negative) % P landing in [0, P)
+    BigInt r = (-a) % P;
+    REQUIRE(r >= 0LL);
+    REQUIRE(r < P);
+    REQUIRE(r == P - (a % P));
+
+    // All four sign combinations satisfy the floored invariant
+    for (const BigInt& x : {a, -a}) {
+        for (const BigInt& y : {P, -P}) {
+            BigInt q = x / y;
+            BigInt rem = x % y;
+            REQUIRE(q * y + rem == x);
+            if (y > zero) {
+                REQUIRE(rem >= 0LL);
+                REQUIRE(rem < y);
+            } else {
+                REQUIRE(rem <= 0LL);
+                REQUIRE(rem > y);
+            }
+        }
+    }
+
+    // Exact multiples: no floored adjustment in either direction
+    BigInt m = P * BigInt(-3);
+    REQUIRE(m / P == -3LL);
+    REQUIRE(m % P == 0LL);
+    REQUIRE(m / (-P) == 3LL);
+    REQUIRE(m % (-P) == 0LL);
 }

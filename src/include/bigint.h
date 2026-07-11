@@ -453,6 +453,8 @@ inline BigInt squared(const BigInt& base) {
 // Modular inverse via the extended Euclidean algorithm. The input is
 // reduced with floored % first, so negative `a` works; the result is
 // normalized into [0, mod) the same way.
+// Precondition: gcd(a, mod) == 1 (the modulus is prime in all ECC uses);
+// for zero or non-coprime input the result is meaningless.
 inline BigInt inverse(const BigInt& a, const BigInt& mod) {
     BigInt temp_mod = mod;
     BigInt temp_a = a % mod;
