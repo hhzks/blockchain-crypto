@@ -100,3 +100,45 @@ TEST_CASE("v2: multi-limb multiplication is consistent with addition", "[unit][b
     x *= BigInt(-5);
     REQUIRE(x == -15LL);
 }
+
+TEST_CASE("v2: decimal and hex string construction", "[unit][bigint2]") {
+    REQUIRE(BigInt(std::string("0")) == 0LL);
+    REQUIRE(BigInt(std::string("42")) == 42LL);
+    REQUIRE(BigInt(std::string("-42")) == -42LL);
+    REQUIRE(BigInt(std::string("+42")) == 42LL);
+    REQUIRE(BigInt("ff", 16) == 255LL);
+    REQUIRE(BigInt("FF", 16) == 255LL);
+    REQUIRE(BigInt("-ff", 16) == -255LL);
+    REQUIRE(BigInt("101", 2) == 5LL);
+    REQUIRE(BigInt("zz", 36) == 35LL * 36 + 35);
+    // Known cross-base answer: secp256k1's field prime
+    BigInt p_dec(std::string(
+        "115792089237316195423570985008687907853269984665640564039457584007908834671663"));
+    BigInt p_hex(
+        "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16);
+    REQUIRE(p_dec == p_hex);
+    // Exact known product: (2^63 - 1)^2
+    BigInt max(9223372036854775807LL);
+    REQUIRE(max * max ==
+            BigInt(std::string("85070591730234615847396907784232501249")));
+}
+
+TEST_CASE("v2: string construction rejects invalid input", "[unit][bigint2]") {
+    REQUIRE_THROWS_AS(BigInt(std::string("12a")), std::invalid_argument);
+    REQUIRE_THROWS_AS(BigInt(std::string("")), std::invalid_argument);
+    REQUIRE_THROWS_AS(BigInt(std::string("-")), std::invalid_argument);
+    REQUIRE_THROWS_AS(BigInt("12", 1), std::invalid_argument);
+    REQUIRE_THROWS_AS(BigInt("129", 8), std::invalid_argument);
+}
+
+TEST_CASE("v2: to_binary_string", "[unit][bigint2]") {
+    REQUIRE(BigInt(0).to_binary_string() == "0");
+    REQUIRE(BigInt(10).to_binary_string() == "1010");
+    REQUIRE(BigInt(-5).to_binary_string() == "-101");
+    // 2^64 = "1" followed by 64 zeros
+    std::string expected = "1" + std::string(64, '0');
+    REQUIRE(BigInt("10000000000000000", 16).to_binary_string() == expected);
+    // Round-trip through base-2 construction
+    BigInt p("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16);
+    REQUIRE(BigInt(p.to_binary_string(), 2) == p);
+}

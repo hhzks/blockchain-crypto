@@ -103,6 +103,28 @@ private:
         return result;
     }
 
+    // *this = *this * multiplier + addend, on the magnitude. Sign untouched.
+    void mulAddInPlace(uint64_t multiplier, uint64_t addend) {
+        unsigned __int128 carry = addend;
+        for (uint64_t& limb : limbs) {
+            unsigned __int128 cur =
+                static_cast<unsigned __int128>(limb) * multiplier + carry;
+            limb = static_cast<uint64_t>(cur);
+            carry = cur >> 64;
+        }
+        while (carry != 0) {
+            limbs.push_back(static_cast<uint64_t>(carry));
+            carry >>= 64;
+        }
+    }
+
+    static int digitValue(char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'Z') return c - 'A' + 10;
+        return -1;
+    }
+
 public:
     BigInt() = default;
     BigInt(const BigInt&) = default;
@@ -118,6 +140,49 @@ public:
     }
 
     BigInt& operator=(const long long& num) { return *this = BigInt(num); }
+
+    BigInt(const std::string& num) : BigInt(num, 10) {}
+
+    BigInt(const std::string& num, int base) {
+        if (base < 2 || base > 36)
+            throw std::invalid_argument("BigInt: base must be between 2 and 36");
+        size_t pos = 0;
+        bool neg = false;
+        if (pos < num.size() && (num[pos] == '+' || num[pos] == '-')) {
+            neg = (num[pos] == '-');
+            ++pos;
+        }
+        if (pos == num.size())
+            throw std::invalid_argument("BigInt: expected an integer, got: " + num);
+
+        // Largest digit count whose chunk value always fits in uint64_t.
+        const uint64_t ubase = static_cast<uint64_t>(base);
+        uint64_t chunk_cap = 1;
+        size_t chunk_len = 0;
+        while (chunk_cap <= std::numeric_limits<uint64_t>::max() / ubase) {
+            chunk_cap *= ubase;
+            ++chunk_len;
+        }
+
+        size_t take = (num.size() - pos) % chunk_len;
+        if (take == 0) take = chunk_len;
+        while (pos < num.size()) {
+            uint64_t chunk_value = 0;
+            uint64_t chunk_mult = 1;
+            for (size_t i = 0; i < take; ++i, ++pos) {
+                int d = digitValue(num[pos]);
+                if (d < 0 || d >= base)
+                    throw std::invalid_argument(
+                        "BigInt: invalid digit in: " + num);
+                chunk_value = chunk_value * ubase + static_cast<uint64_t>(d);
+                chunk_mult *= ubase;
+            }
+            mulAddInPlace(chunk_mult, chunk_value);
+            take = chunk_len;
+        }
+        normalize();
+        negative = neg && !limbs.empty();
+    }
 
     BigInt operator+() const { return *this; }
 
@@ -151,6 +216,18 @@ public:
             throw std::out_of_range("BigInt::to_int: value out of int range");
         return negative ? static_cast<int>(-static_cast<int64_t>(v))
                         : static_cast<int>(v);
+    }
+
+    std::string to_binary_string() const {
+        if (isZero()) return "0";
+        std::string out = negative ? "-" : "";
+        int bit = 63 - std::countl_zero(limbs.back());
+        for (size_t i = limbs.size(); i-- > 0;) {
+            for (; bit >= 0; --bit)
+                out += ((limbs[i] >> bit) & 1) ? '1' : '0';
+            bit = 63;
+        }
+        return out;
     }
 
     BigInt operator+(const BigInt& num) const {
