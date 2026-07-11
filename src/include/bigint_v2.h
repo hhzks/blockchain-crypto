@@ -81,6 +81,28 @@ private:
         return result;
     }
 
+    static std::vector<uint64_t> mulMagnitude(const std::vector<uint64_t>& a,
+                                              const std::vector<uint64_t>& b) {
+        if (a.empty() || b.empty()) return {};
+        std::vector<uint64_t> result(a.size() + b.size(), 0);
+        for (size_t i = 0; i < a.size(); ++i) {
+            unsigned __int128 carry = 0;
+            for (size_t j = 0; j < b.size(); ++j) {
+                unsigned __int128 cur =
+                    static_cast<unsigned __int128>(a[i]) * b[j] +
+                    result[i + j] + carry;
+                result[i + j] = static_cast<uint64_t>(cur);
+                carry = cur >> 64;
+            }
+            for (size_t k = i + b.size(); carry != 0; ++k) {
+                unsigned __int128 cur = result[k] + carry;
+                result[k] = static_cast<uint64_t>(cur);
+                carry = cur >> 64;
+            }
+        }
+        return result;
+    }
+
 public:
     BigInt() = default;
     BigInt(const BigInt&) = default;
@@ -155,6 +177,17 @@ public:
 
     BigInt& operator+=(const BigInt& num) { return *this = *this + num; }
     BigInt& operator-=(const BigInt& num) { return *this = *this - num; }
+
+    BigInt operator*(const BigInt& num) const {
+        BigInt result;
+        result.limbs = mulMagnitude(limbs, num.limbs);
+        result.negative = (negative != num.negative) && !result.limbs.empty();
+        result.normalize();
+        return result;
+    }
+
+    BigInt operator*(const long long& num) const { return *this * BigInt(num); }
+    BigInt& operator*=(const BigInt& num) { return *this = *this * num; }
 };
 
 } // namespace bigint2

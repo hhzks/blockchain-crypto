@@ -73,3 +73,30 @@ TEST_CASE("v2: compound add/subtract assign", "[unit][bigint2]") {
     x -= BigInt(20);
     REQUIRE(x == -5LL);
 }
+
+TEST_CASE("v2: multiplication identities and signs", "[unit][bigint2]") {
+    REQUIRE(BigInt(6) * BigInt(7) == 42LL);
+    REQUIRE(BigInt(-6) * BigInt(7) == -42LL);
+    REQUIRE(BigInt(6) * BigInt(-7) == -42LL);
+    REQUIRE(BigInt(-6) * BigInt(-7) == 42LL);
+    REQUIRE(BigInt(6) * BigInt(0) == 0LL);
+    REQUIRE(BigInt(0) * BigInt(-7) == 0LL);
+    REQUIRE(BigInt(123) * 1LL == 123LL);
+}
+
+TEST_CASE("v2: multi-limb multiplication is consistent with addition", "[unit][bigint2]") {
+    // No string I/O exists yet, so verify algebraically against trusted ops.
+    const long long max = 9223372036854775807LL;   // 2^63 - 1
+    BigInt a(max);
+    BigInt two_a = a + a;
+    REQUIRE(a * BigInt(2) == two_a);               // crosses into limb 2
+    BigInt sq = a * a;                              // 126-bit result
+    REQUIRE(sq + sq == a * two_a);                  // 2*a^2 == a*(2a)
+    REQUIRE(sq > two_a);
+    REQUIRE(a * a == a * a);                        // deterministic
+    BigInt x(3), acc;
+    acc = sq + sq + sq;
+    REQUIRE(sq * x == acc);                         // multiplication as repeated addition
+    x *= BigInt(-5);
+    REQUIRE(x == -15LL);
+}
