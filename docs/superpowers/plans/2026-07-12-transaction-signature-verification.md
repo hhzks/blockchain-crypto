@@ -54,7 +54,7 @@ cmake --build build-app --target blockchain -j
 Additive change: adds the field, accessors, and populates it on signing. `isValid()` is NOT changed yet, so every existing test stays green.
 
 **Files:**
-- Modify: `src/include/Transaction.h` (add field + getter/setter + private helper decl)
+- Modify: `src/include/Transaction.h` (add field + getter/setter)
 - Modify: `src/Transaction.cpp` (populate on signing)
 - Test: `tests/unit/transaction_test.cpp`
 
