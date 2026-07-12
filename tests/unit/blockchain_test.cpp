@@ -125,3 +125,60 @@ TEST_CASE("saveToFile/loadFromFile preserves signed transaction public key",
     auto loaded_tx = loaded.getLatestBlock()->getTransactions()[0];
     REQUIRE(loaded_tx->getSenderPublicKey() == tx->getSenderPublicKey());
 }
+
+TEST_CASE("addBlock accepts a valid next block", "[unit][blockchain]") {
+    MinedChainFixture f;
+    auto tip = f.chain.getLatestBlock();
+    int next_index = static_cast<int>(f.chain.getChainSize());
+    int required = f.chain.calculateRequiredDifficulty();
+
+    auto block = std::make_shared<Block>(next_index, tip->getHash(), required);
+    block->addTransaction(std::make_shared<Transaction>("system", "miner", 50.0));
+    block->mineBlock();
+
+    REQUIRE(f.chain.addBlock(block));
+    REQUIRE(f.chain.getChainSize() == 2);
+    REQUIRE(f.chain.getLatestBlock()->getHash() == block->getHash());
+}
+
+TEST_CASE("addBlock rejects a block with the wrong previous hash",
+          "[unit][blockchain]") {
+    MinedChainFixture f;
+    int next_index = static_cast<int>(f.chain.getChainSize());
+    int required = f.chain.calculateRequiredDifficulty();
+
+    auto block = std::make_shared<Block>(next_index, "wronghash", required);
+    block->addTransaction(std::make_shared<Transaction>("system", "miner", 50.0));
+    block->mineBlock();
+
+    REQUIRE_FALSE(f.chain.addBlock(block));
+    REQUIRE(f.chain.getChainSize() == 1);
+}
+
+TEST_CASE("addBlock rejects a block at the wrong index", "[unit][blockchain]") {
+    MinedChainFixture f;
+    auto tip = f.chain.getLatestBlock();
+    int required = f.chain.calculateRequiredDifficulty();
+
+    auto block = std::make_shared<Block>(5, tip->getHash(), required);
+    block->addTransaction(std::make_shared<Transaction>("system", "miner", 50.0));
+    block->mineBlock();
+
+    REQUIRE_FALSE(f.chain.addBlock(block));
+    REQUIRE(f.chain.getChainSize() == 1);
+}
+
+TEST_CASE("addBlock rejects a block with incorrect difficulty",
+          "[unit][blockchain]") {
+    MinedChainFixture f;
+    auto tip = f.chain.getLatestBlock();
+    int next_index = static_cast<int>(f.chain.getChainSize());
+    int wrong = f.chain.calculateRequiredDifficulty() + 1;
+
+    auto block = std::make_shared<Block>(next_index, tip->getHash(), wrong);
+    block->addTransaction(std::make_shared<Transaction>("system", "miner", 50.0));
+    block->mineBlock();
+
+    REQUIRE_FALSE(f.chain.addBlock(block));
+    REQUIRE(f.chain.getChainSize() == 1);
+}

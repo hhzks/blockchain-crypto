@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <unordered_set>
 #include <format>
 
 Blockchain::Blockchain() : difficulty(INITIAL_DIFFICULTY), mining_reward(100.0) {
@@ -165,6 +166,57 @@ bool Blockchain::isChainValid() const {
         }
     }
     
+    return true;
+}
+
+bool Blockchain::addBlock(std::shared_ptr<Block> block) {
+    if (!block) {
+        return false;
+    }
+
+    const auto& tip = getLatestBlock();
+
+    // Must extend the current tip at exactly the next height.
+    if (block->getIndex() != static_cast<int>(chain.size())) {
+        std::cout << "Rejected block: wrong index " << block->getIndex()
+                  << " (expected " << chain.size() << ")" << std::endl;
+        return false;
+    }
+
+    if (block->getPreviousHash() != tip->getHash()) {
+        std::cout << "Rejected block: previous hash does not match tip" << std::endl;
+        return false;
+    }
+
+    // Second-granularity timestamps; equal is allowed (matches isChainValid).
+    if (block->getTimestamp() < tip->getTimestamp()) {
+        std::cout << "Rejected block: timestamp precedes tip" << std::endl;
+        return false;
+    }
+
+    int required = calculateRequiredDifficultyAtHeight(block->getIndex());
+    if (!block->isValidWithDifficulty(required)) {
+        std::cout << "Rejected block: failed validation" << std::endl;
+        return false;
+    }
+
+    chain.push_back(block);
+
+    // Drop any pending transactions now included in the accepted block.
+    if (!pending_transactions.empty()) {
+        std::unordered_set<std::string> included;
+        for (const auto& tx : block->getTransactions()) {
+            included.insert(tx->calculateHash());
+        }
+        std::erase_if(pending_transactions,
+                      [&included](const std::shared_ptr<Transaction>& tx) {
+                          return included.contains(tx->calculateHash());
+                      });
+    }
+
+    updateBalances();
+    std::cout << "Block " << block->getIndex()
+              << " accepted and added to chain" << std::endl;
     return true;
 }
 
