@@ -173,3 +173,18 @@ New cases, written before implementation:
   signed transactions, so the impact is small, but test runtime will be watched.
 - No change to hashing, merkle roots, or proof-of-work, so there is no
   chain-structure regression surface.
+
+## Known limitations (post-implementation)
+
+Surfaced by the final whole-branch review and consciously scoped:
+
+- `addBlock()` enforces the mining-reward invariant (exactly one `system`
+  transaction of `mining_reward`) to prevent unlimited-mint blocks, but does
+  **not** validate that non-system senders in a foreign block have sufficient
+  balance / are free of double-spends. `Block::isValid()` / `isChainValid()`
+  never checked this either, so it is a pre-existing gap that `addBlock` now
+  also inherits for the network path. A future change could add a shared
+  "economic validity" replay used by both `addBlock` and `isChainValid`.
+- The on-disk save format gained a per-transaction public-key field, so save
+  files written by a pre-feature binary no longer load. Accepted: the only such
+  files are ephemeral test temporaries (see §5).
