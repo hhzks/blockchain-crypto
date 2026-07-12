@@ -1,8 +1,7 @@
 # Blockchain from Scratch (C++23)
 
 A small, self-contained blockchain implemented from first principles in modern
-C++ — no external crypto or networking libraries. It exists to make the moving
-parts of a blockchain legible: proof-of-work mining, a hand-written SHA-256, a
+C++. It exists to make the moving parts of a blockchain legible: proof-of-work mining, a hand-written SHA-256, a
 hand-written secp256k1 ECDSA (on a custom big-integer type), Merkle roots,
 wallet key management, on-disk persistence, and a peer-to-peer node.
 
@@ -135,10 +134,10 @@ For a class-by-class walkthrough, see [`TECHNICAL_DOCS.md`](TECHNICAL_DOCS.md).
 
 ## Security model & limitations
 
-This is a teaching project. Known, intentional gaps:
+This is a learning project. Known, intentional gaps:
 
 - The SHA-256, `BigInt`, and ECDSA code is hand-rolled, **unaudited, and not
-  constant-time**. Never reuse it for anything that matters.
+  constant-time**.
 - Balances are tracked by address string and recomputed from chain history.
 - `addBlock()` validates structure, proof-of-work, difficulty, per-transaction
   signatures, and the mining-reward invariant, but does **not** check that
