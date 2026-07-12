@@ -42,7 +42,6 @@ src/
   P2PNode.{h,cpp}     TCP peer-to-peer node
   P2PMessage.h        Wire protocol + block/transaction serializers
 tests/                Catch2 v3 unit + integration tests
-TECHNICAL_DOCS.md     Deeper, class-by-class reference
 ```
 
 ## Requirements
@@ -124,8 +123,6 @@ ctest --test-dir build --output-on-failure
   exactly one mining-reward transaction of the expected amount.
 - **Mining.** `mineBlock` searches for a nonce whose block hash satisfies the
   difficulty target; difficulty retargets on a fixed interval.
-
-For a class-by-class walkthrough, see [`TECHNICAL_DOCS.md`](TECHNICAL_DOCS.md).
 
 ## Security model & limitations
 
