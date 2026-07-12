@@ -5,11 +5,6 @@ C++. It exists to make the moving parts of a blockchain legible: proof-of-work m
 hand-written secp256k1 ECDSA (on a custom big-integer type), Merkle roots,
 wallet key management, on-disk persistence, and a peer-to-peer node.
 
-> **Status: educational.** The cryptography is implemented for learning and is
-> **not audited or constant-time**, balances are keyed by address strings, and
-> the big-integer arithmetic is deliberately simple (and slow). Do not use this
-> to secure anything real. See [Security model & limitations](#security-model--limitations).
-
 ## Features
 
 - **Transactions** with real ECDSA signatures over secp256k1. `isValid()`
