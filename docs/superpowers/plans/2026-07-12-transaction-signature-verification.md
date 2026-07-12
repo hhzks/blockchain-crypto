@@ -106,14 +106,6 @@ and the setter next to `setSignature`:
     void setSenderPublicKey(const std::string& pubkey_hex) { sender_pubkey = pubkey_hex; }
 ```
 
-In the `private:` section, add a helper declaration next to `getTransactionData()`:
-
-```cpp
-private:
-    std::string getTransactionData() const;
-    std::string derivedAddressFromKey() const;
-```
-
 - [ ] **Step 4: Populate the key on signing**
 
 In `src/Transaction.cpp`, in `signTransaction(const ECCrypto::PrivateKey& private_key)`, after `signature = ECCrypto::signatureToHex(sig);` (currently line 31) and before the success log, add:
@@ -432,7 +424,15 @@ Expected: four cases go RED against the current lenient code — "rejects a publ
 
 - [ ] **Step 3: Add the `derivedAddressFromKey` helper**
 
-In `src/Transaction.cpp`, add near `getTransactionData()` (end of file):
+First declare it in `src/include/Transaction.h`, in the `private:` section next to `getTransactionData()`:
+
+```cpp
+private:
+    std::string getTransactionData() const;
+    std::string derivedAddressFromKey() const;
+```
+
+Then add the definition in `src/Transaction.cpp`, near `getTransactionData()` (end of file):
 
 ```cpp
 std::string Transaction::derivedAddressFromKey() const {
