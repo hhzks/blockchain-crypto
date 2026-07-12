@@ -109,3 +109,62 @@ TEST_CASE("setSignature stores signature for later retrieval", "[unit][transacti
     // across reconstructed transactions is not expected to succeed until a
     // ctor overload preserves timestamp. See spec §4 bug #1.
 }
+
+TEST_CASE("isValid accepts a properly signed transaction", "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+    Transaction t(kf.address(), "receiver", 1.0);
+    REQUIRE(t.signTransaction(kf.privHex()));
+    REQUIRE(t.isValid());
+}
+
+TEST_CASE("isValid rejects a public key that does not match the sender",
+          "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+    Transaction t(kf.address(), "receiver", 1.0);
+    REQUIRE(t.signTransaction(kf.privHex()));
+    // Swap in a different valid key: deriveAddress(pubkey) no longer == sender.
+    auto other = ECCrypto::keyPairFromPrivateKey(BigInt(0x5678LL));
+    t.setSenderPublicKey(other->public_key_hex);
+    REQUIRE_FALSE(t.isValid());
+}
+
+TEST_CASE("isValid rejects a malformed signature", "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+    Transaction t(kf.address(), "receiver", 1.0);
+    REQUIRE(t.signTransaction(kf.privHex()));
+    t.setSignature("deadbeef");  // valid hex, wrong length
+    REQUIRE_FALSE(t.isValid());
+}
+
+TEST_CASE("isValid rejects a signature that does not match the transaction data",
+          "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+    Transaction signed_tx(kf.address(), "receiver", 1.0);
+    REQUIRE(signed_tx.signTransaction(kf.privHex()));
+
+    // Same sender/key (binding holds) but different data: ECDSA verify must fail.
+    Transaction tampered(kf.address(), "receiver", 999.0);
+    tampered.setSenderPublicKey(signed_tx.getSenderPublicKey());
+    tampered.setSignature(signed_tx.getSignature());
+    REQUIRE(tampered.getSenderPublicKey() == kf.pubHex());
+    REQUIRE_FALSE(tampered.isValid());
+}
+
+TEST_CASE("verifySignatureByAddress accepts true address and rejects wrong",
+          "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+    Transaction t(kf.address(), "receiver", 1.0);
+    REQUIRE(t.signTransaction(kf.privHex()));
+    REQUIRE(t.verifySignatureByAddress(kf.address()));
+    REQUIRE_FALSE(t.verifySignatureByAddress("not_the_address"));
+}
+
+TEST_CASE("verifySignatureByAddress requires a real signature, not just a matching address",
+          "[unit][transaction]") {
+    // Discriminating case: the old stub returned `sender == address`, so an
+    // unsigned transaction whose address matches the sender would wrongly pass.
+    // Real verification must reject it.
+    test_support::KeyPairFixture kf;
+    Transaction unsigned_tx(kf.address(), "receiver", 1.0);
+    REQUIRE_FALSE(unsigned_tx.verifySignatureByAddress(kf.address()));
+}

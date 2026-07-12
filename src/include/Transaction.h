@@ -40,4 +40,5 @@ public:
 
 private:
     std::string getTransactionData() const;
+    std::string derivedAddressFromKey() const;
 };
