@@ -1,5 +1,7 @@
 archive/*
 .worktrees/
 build/
+build-tests/
+build-app/
 docs/*
 .idea/
