@@ -29,6 +29,14 @@ bool Transaction::signTransaction(const ECCrypto::PrivateKey& private_key) {
         std::string tx_data = getTransactionData();
         ECCrypto::Signature sig = ECCrypto::signMessage(tx_data, private_key);
         signature = ECCrypto::signatureToHex(sig);
+        // Attach the sender's public key so the transaction can be verified
+        // downstream from the address alone. deriveAddress(pubkey) == sender is
+        // enforced in isValid(). The key is NOT part of the signed data.
+        BigInt priv = ECCrypto::bytes32ToBigInt(private_key.data());
+        auto kp = ECCrypto::keyPairFromPrivateKey(priv);
+        if (kp) {
+            sender_pubkey = kp->public_key_hex;
+        }
         std::println(stderr, "Transaction signed successfully");
         return true;
         
@@ -87,14 +95,15 @@ bool Transaction::verifySignature(const std::string& public_key_hex) const {
 }
 
 bool Transaction::verifySignatureByAddress(const std::string& address) const {
-    if (signature.empty() || address.empty()) {
+    if (signature.empty() || address.empty() || sender_pubkey.empty()) {
         return false;
     }
-    
-    // This is a simplified approach - in a real implementation, you would need
-    // to store public keys separately or use a more sophisticated verification method
-    // For now, we'll check if the sender address matches the provided address
-    return sender == address;
+    // The attached key must belong to `address`, and the signature must verify.
+    std::string derived = derivedAddressFromKey();
+    if (derived.empty() || derived != address) {
+        return false;
+    }
+    return verifySignature(sender_pubkey);
 }
 
 std::string Transaction::toString() const {
@@ -126,19 +135,45 @@ bool Transaction::isValid() const {
     if (sender == "system") {
         return true;
     }
-    
-    // Check if transaction is signed
+
+    // Must be signed with a well-formed signature.
     if (signature.empty()) {
         std::println(stderr, "Invalid transaction: Transaction not signed");
         return false;
     }
-    
-    // In a real implementation, we would verify the signature here
-    // For now, we'll just check that a signature exists
-    // Full verification requires the public key of the sender
+    if (signature.length() != ECCrypto::SIGNATURE_SIZE * 2) {
+        std::println(stderr, "Invalid transaction: Malformed signature");
+        return false;
+    }
+
+    // The attached public key must hash to the sender address (binds key->address).
+    std::string derived = derivedAddressFromKey();
+    if (derived.empty() || derived != sender) {
+        std::println(stderr, "Invalid transaction: Public key does not match sender address");
+        return false;
+    }
+
+    // Finally, the signature must verify against that public key.
+    if (!verifySignature(sender_pubkey)) {
+        std::println(stderr, "Invalid transaction: Signature verification failed");
+        return false;
+    }
+
     return true;
 }
 
 std::string Transaction::getTransactionData() const {
     return std::format("{}:{}:{:.8f}:{}", sender, receiver, amount, timestamp);
+}
+
+std::string Transaction::derivedAddressFromKey() const {
+    if (sender_pubkey.length() != ECCrypto::PUBLIC_KEY_SIZE * 2) {
+        return "";
+    }
+    ECCrypto::PublicKey pub_key;
+    if (ECCrypto::hexToBytes(sender_pubkey, pub_key.data(),
+                             ECCrypto::PUBLIC_KEY_SIZE) != ECCrypto::PUBLIC_KEY_SIZE) {
+        return "";
+    }
+    return ECCrypto::deriveAddress(pub_key);
 }

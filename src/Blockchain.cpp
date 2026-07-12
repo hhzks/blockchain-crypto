@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <unordered_set>
 #include <format>
 
 Blockchain::Blockchain() : difficulty(INITIAL_DIFFICULTY), mining_reward(100.0) {
@@ -168,6 +169,81 @@ bool Blockchain::isChainValid() const {
     return true;
 }
 
+bool Blockchain::addBlock(std::shared_ptr<Block> block) {
+    if (!block) {
+        return false;
+    }
+
+    const auto& tip = getLatestBlock();
+
+    // Must extend the current tip at exactly the next height.
+    if (block->getIndex() != static_cast<int>(chain.size())) {
+        std::cout << "Rejected block: wrong index " << block->getIndex()
+                  << " (expected " << chain.size() << ")" << std::endl;
+        return false;
+    }
+
+    if (block->getPreviousHash() != tip->getHash()) {
+        std::cout << "Rejected block: previous hash does not match tip" << std::endl;
+        return false;
+    }
+
+    // Second-granularity timestamps; equal is allowed (matches isChainValid).
+    if (block->getTimestamp() < tip->getTimestamp()) {
+        std::cout << "Rejected block: timestamp precedes tip" << std::endl;
+        return false;
+    }
+
+    int required = calculateRequiredDifficultyAtHeight(block->getIndex());
+    if (!block->isValidWithDifficulty(required)) {
+        std::cout << "Rejected block: failed validation" << std::endl;
+        return false;
+    }
+
+    // Reward invariant: a legitimate block carries exactly one system
+    // (mining-reward) transaction of the expected amount, matching how
+    // minePendingTransactions builds blocks. Without this, a peer could mint
+    // unlimited coins in a single crafted block, since system transactions are
+    // exempt from signature verification and per-transaction validation alone
+    // never bounds their count or amount.
+    int system_tx_count = 0;
+    for (const auto& tx : block->getTransactions()) {
+        if (tx->getSender() == "system") {
+            system_tx_count++;
+            if (tx->getAmount() != mining_reward) {
+                std::cout << "Rejected block: system reward amount "
+                          << tx->getAmount() << " does not match expected "
+                          << mining_reward << std::endl;
+                return false;
+            }
+        }
+    }
+    if (system_tx_count != 1) {
+        std::cout << "Rejected block: expected exactly one system reward "
+                     "transaction, found " << system_tx_count << std::endl;
+        return false;
+    }
+
+    chain.push_back(block);
+
+    // Drop any pending transactions now included in the accepted block.
+    if (!pending_transactions.empty()) {
+        std::unordered_set<std::string> included;
+        for (const auto& tx : block->getTransactions()) {
+            included.insert(tx->calculateHash());
+        }
+        std::erase_if(pending_transactions,
+                      [&included](const std::shared_ptr<Transaction>& tx) {
+                          return included.contains(tx->calculateHash());
+                      });
+    }
+
+    updateBalances();
+    std::cout << "Block " << block->getIndex()
+              << " accepted and added to chain" << std::endl;
+    return true;
+}
+
 void Blockchain::printChain() const {
     std::cout << "=== BLOCKCHAIN ===" << std::endl;
     std::cout << "Chain length: " << chain.size() << " blocks" << std::endl;
@@ -222,6 +298,7 @@ bool Blockchain::saveToFile(const std::string& filename) const {
             // "-" sentinel: an empty signature line would be skipped by
             // operator>> on load and corrupt the parse.
             file << (tx->getSignature().empty() ? "-" : tx->getSignature()) << std::endl;
+            file << (tx->getSenderPublicKey().empty() ? "-" : tx->getSenderPublicKey()) << std::endl;
         }
     }
 
@@ -259,17 +336,21 @@ bool Blockchain::loadFromFile(const std::string& filename) {
         file >> tx_count;
 
         for (size_t j = 0; j < tx_count; j++) {
-            std::string sender, receiver, signature;
+            std::string sender, receiver, signature, pubkey;
             double amount;
             long long tx_timestamp;
 
-            file >> sender >> receiver >> amount >> tx_timestamp >> signature;
+            file >> sender >> receiver >> amount >> tx_timestamp >> signature >> pubkey;
             if (signature == "-") {
                 signature.clear();
+            }
+            if (pubkey == "-") {
+                pubkey.clear();
             }
 
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
                                                     tx_timestamp, signature);
+            tx->setSenderPublicKey(pubkey);
             block->addTransaction(tx);
         }
 

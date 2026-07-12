@@ -32,6 +32,7 @@ public:
     int calculateRequiredDifficulty() const;
     bool validateBlockDifficulty(const std::shared_ptr<Block>& block) const;
     bool isChainValid() const;
+    bool addBlock(std::shared_ptr<Block> block);
     void printChain() const;
     bool saveToFile(const std::string& filename) const;
     bool loadFromFile(const std::string& filename);

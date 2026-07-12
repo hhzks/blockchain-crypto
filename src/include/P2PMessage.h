@@ -256,7 +256,8 @@ public:
                 << "," << tx->getReceiver()
                 << "," << std::format("{:.8f}", tx->getAmount())
                 << "," << tx->getTimestamp()
-                << "," << tx->getSignature();
+                << "," << tx->getSignature()
+                << "," << tx->getSenderPublicKey();
         }
 
         return oss.str();
@@ -288,7 +289,7 @@ public:
             std::getline(iss, tx_data, '|');
 
             std::istringstream tx_stream(tx_data);
-            std::string sender, receiver, sig;
+            std::string sender, receiver, sig, pubkey;
             double amount;
             long long tx_timestamp;
 
@@ -297,9 +298,11 @@ public:
             std::getline(tx_stream, token, ','); amount = std::stod(token);
             std::getline(tx_stream, token, ','); tx_timestamp = std::stoll(token);
             std::getline(tx_stream, sig, ',');
+            std::getline(tx_stream, pubkey, ',');
 
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
                                                     tx_timestamp, sig);
+            tx->setSenderPublicKey(pubkey);
             block->addTransaction(tx);
         }
 
@@ -316,13 +319,14 @@ public:
             << tx.getReceiver() << "|"
             << std::format("{:.8f}", tx.getAmount()) << "|"
             << tx.getTimestamp() << "|"
-            << tx.getSignature();
+            << tx.getSignature() << "|"
+            << tx.getSenderPublicKey();
         return oss.str();
     }
 
     static std::shared_ptr<Transaction> deserialize(const std::string& data) {
         std::istringstream iss(data);
-        std::string sender, receiver, sig, token;
+        std::string sender, receiver, sig, pubkey, token;
         double amount;
         long long timestamp;
 
@@ -331,9 +335,12 @@ public:
         std::getline(iss, token, '|'); amount = std::stod(token);
         std::getline(iss, token, '|'); timestamp = std::stoll(token);
         std::getline(iss, sig, '|');
+        std::getline(iss, pubkey, '|');
 
-        return std::make_shared<Transaction>(sender, receiver, amount,
-                                             timestamp, sig);
+        auto tx = std::make_shared<Transaction>(sender, receiver, amount,
+                                                timestamp, sig);
+        tx->setSenderPublicKey(pubkey);
+        return tx;
     }
 };
 

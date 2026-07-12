@@ -78,6 +78,27 @@ TEST_CASE("BlockSerializer roundtrip preserves mined state", "[unit][p2p]") {
     REQUIRE(restored->isValid());
 }
 
+TEST_CASE("TransactionSerializer preserves sender public key", "[unit][p2p]") {
+    test_support::KeyPairFixture kf;
+    auto tx = kf.signedTx("bob", 3.5);
+    auto restored = TransactionSerializer::deserialize(
+        TransactionSerializer::serialize(*tx));
+    REQUIRE(restored->getSenderPublicKey() == kf.pubHex());
+    REQUIRE(restored->getSignature() == tx->getSignature());
+}
+
+TEST_CASE("BlockSerializer preserves signed transaction public key",
+          "[unit][p2p]") {
+    test_support::KeyPairFixture kf;
+    Block b(1, "prevhash", 2);
+    b.addTransaction(kf.signedTx("bob", 5.0));
+    b.mineBlock();
+
+    auto restored = BlockSerializer::deserialize(BlockSerializer::serialize(b));
+    REQUIRE(restored->getTransactions().size() == 1);
+    REQUIRE(restored->getTransactions()[0]->getSenderPublicKey() == kf.pubHex());
+}
+
 TEST_CASE("All message factory helpers produce reparseable messages",
           "[unit][p2p]") {
     struct Case { Message msg; MessageType expected; };
