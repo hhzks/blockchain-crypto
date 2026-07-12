@@ -85,6 +85,14 @@ TEST_CASE("restore constructor preserves timestamp so signatures verify",
     REQUIRE(restored.verifySignature(kf.pubHex()));
 }
 
+TEST_CASE("signTransaction populates sender public key", "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+    Transaction t(kf.address(), "receiver", 1.0);
+    REQUIRE(t.getSenderPublicKey().empty());
+    REQUIRE(t.signTransaction(kf.privHex()));
+    REQUIRE(t.getSenderPublicKey() == kf.pubHex());
+}
+
 TEST_CASE("setSignature stores signature for later retrieval", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
     Transaction original(kf.address(), "receiver", 1.0);

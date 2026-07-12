@@ -11,6 +11,7 @@ private:
     double amount;
     long long timestamp;
     std::string signature;
+    std::string sender_pubkey;
 
 public:
     Transaction(const std::string& from, const std::string& to, double value);
@@ -24,6 +25,7 @@ public:
     double getAmount() const { return amount; }
     long long getTimestamp() const { return timestamp; }
     std::string getSignature() const { return signature; }
+    std::string getSenderPublicKey() const { return sender_pubkey; }
 
     std::string calculateHash() const;
     bool signTransaction(const ECCrypto::PrivateKey& private_key);
@@ -34,6 +36,7 @@ public:
     std::string toString() const;
     bool isValid() const;
     void setSignature(const std::string& sig) { signature = sig; }
+    void setSenderPublicKey(const std::string& pubkey_hex) { sender_pubkey = pubkey_hex; }
 
 private:
     std::string getTransactionData() const;

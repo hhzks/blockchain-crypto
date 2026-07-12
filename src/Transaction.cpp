@@ -29,6 +29,14 @@ bool Transaction::signTransaction(const ECCrypto::PrivateKey& private_key) {
         std::string tx_data = getTransactionData();
         ECCrypto::Signature sig = ECCrypto::signMessage(tx_data, private_key);
         signature = ECCrypto::signatureToHex(sig);
+        // Attach the sender's public key so the transaction can be verified
+        // downstream from the address alone. deriveAddress(pubkey) == sender is
+        // enforced in isValid(). The key is NOT part of the signed data.
+        BigInt priv = ECCrypto::bytes32ToBigInt(private_key.data());
+        auto kp = ECCrypto::keyPairFromPrivateKey(priv);
+        if (kp) {
+            sender_pubkey = kp->public_key_hex;
+        }
         std::println(stderr, "Transaction signed successfully");
         return true;
         
