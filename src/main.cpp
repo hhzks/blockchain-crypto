@@ -2,6 +2,7 @@
 #include "include/Transaction.h"
 #include "include/P2PNode.h"
 #include "include/utils.h"
+#include "include/ECCrypto.h"
 #include <iostream>
 #include <memory>
 #include <string>
@@ -46,8 +47,13 @@ void setupP2PCallbacks(Blockchain& blockchain) {
     
     callbacks.onNewBlock = [&blockchain](std::shared_ptr<Block> block) {
         std::cout << "\n[P2P] Received new block #" << block->getIndex() << std::endl;
-        // In a real implementation, you would validate and add the block
-        // blockchain.addBlock(block);
+        if (blockchain.addBlock(block)) {
+            std::cout << "[P2P] Block #" << block->getIndex()
+                      << " accepted" << std::endl;
+        } else {
+            std::cout << "[P2P] Block #" << block->getIndex()
+                      << " rejected" << std::endl;
+        }
     };
     
     callbacks.onNewTransaction = [&blockchain](std::shared_ptr<Transaction> tx) {
@@ -228,12 +234,22 @@ int main() {
                 std::cout << "Enter amount: ";
                 std::cin >> amount;
                 
-                auto transaction = std::make_shared<Transaction>(sender, receiver, amount);
-                // Demo key management: derive a deterministic 32-byte private
-                // key from the sender name. The previous scheme passed a raw
-                // string that failed hex parsing, so no transaction could
-                // ever be signed.
-                transaction->signTransaction(utils::sha256(sender + "_private_key"));
+                // Demo key management: derive a deterministic private key from
+                // the sender name, then transact from the address that key
+                // actually controls. isValid() now binds the signature to
+                // deriveAddress(pubkey), so a free-text sender is rejected.
+                std::string demo_priv = utils::sha256(sender + "_private_key");
+                auto demo_kp = ECCrypto::keyPairFromPrivateKeyHex(demo_priv);
+                if (!demo_kp) {
+                    std::cout << "Failed to derive a key for sender '" << sender
+                              << "'" << std::endl;
+                    break;
+                }
+                std::cout << "Using address " << demo_kp->address
+                          << " for '" << sender << "'" << std::endl;
+                auto transaction = std::make_shared<Transaction>(
+                    demo_kp->address, receiver, amount);
+                transaction->signTransaction(demo_priv);
                 blockchain.addTransaction(transaction);
                 break;
             }
