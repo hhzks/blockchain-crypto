@@ -182,3 +182,38 @@ TEST_CASE("addBlock rejects a block with incorrect difficulty",
     REQUIRE_FALSE(f.chain.addBlock(block));
     REQUIRE(f.chain.getChainSize() == 1);
 }
+
+TEST_CASE("addBlock rejects a block minting extra system rewards",
+          "[unit][blockchain]") {
+    // A crafted foreign block with more than one system reward transaction is
+    // an unlimited-mint attempt: system txs are exempt from signature checks,
+    // so each one would otherwise pass per-transaction validation.
+    MinedChainFixture f;
+    auto tip = f.chain.getLatestBlock();
+    int next_index = static_cast<int>(f.chain.getChainSize());
+    int required = f.chain.calculateRequiredDifficulty();
+
+    auto block = std::make_shared<Block>(next_index, tip->getHash(), required);
+    block->addTransaction(std::make_shared<Transaction>("system", "attacker", 50.0));
+    block->addTransaction(std::make_shared<Transaction>("system", "attacker", 50.0));
+    block->mineBlock();
+
+    REQUIRE_FALSE(f.chain.addBlock(block));
+    REQUIRE(f.chain.getChainSize() == 1);
+}
+
+TEST_CASE("addBlock rejects a block with an inflated system reward amount",
+          "[unit][blockchain]") {
+    // Exactly one system tx, but its amount exceeds the mining reward.
+    MinedChainFixture f;  // mining_reward == 50.0
+    auto tip = f.chain.getLatestBlock();
+    int next_index = static_cast<int>(f.chain.getChainSize());
+    int required = f.chain.calculateRequiredDifficulty();
+
+    auto block = std::make_shared<Block>(next_index, tip->getHash(), required);
+    block->addTransaction(std::make_shared<Transaction>("system", "attacker", 999999.0));
+    block->mineBlock();
+
+    REQUIRE_FALSE(f.chain.addBlock(block));
+    REQUIRE(f.chain.getChainSize() == 1);
+}

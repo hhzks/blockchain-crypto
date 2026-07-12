@@ -200,6 +200,30 @@ bool Blockchain::addBlock(std::shared_ptr<Block> block) {
         return false;
     }
 
+    // Reward invariant: a legitimate block carries exactly one system
+    // (mining-reward) transaction of the expected amount, matching how
+    // minePendingTransactions builds blocks. Without this, a peer could mint
+    // unlimited coins in a single crafted block, since system transactions are
+    // exempt from signature verification and per-transaction validation alone
+    // never bounds their count or amount.
+    int system_tx_count = 0;
+    for (const auto& tx : block->getTransactions()) {
+        if (tx->getSender() == "system") {
+            system_tx_count++;
+            if (tx->getAmount() != mining_reward) {
+                std::cout << "Rejected block: system reward amount "
+                          << tx->getAmount() << " does not match expected "
+                          << mining_reward << std::endl;
+                return false;
+            }
+        }
+    }
+    if (system_tx_count != 1) {
+        std::cout << "Rejected block: expected exactly one system reward "
+                     "transaction, found " << system_tx_count << std::endl;
+        return false;
+    }
+
     chain.push_back(block);
 
     // Drop any pending transactions now included in the accepted block.
