@@ -222,6 +222,7 @@ bool Blockchain::saveToFile(const std::string& filename) const {
             // "-" sentinel: an empty signature line would be skipped by
             // operator>> on load and corrupt the parse.
             file << (tx->getSignature().empty() ? "-" : tx->getSignature()) << std::endl;
+            file << (tx->getSenderPublicKey().empty() ? "-" : tx->getSenderPublicKey()) << std::endl;
         }
     }
 
@@ -259,17 +260,21 @@ bool Blockchain::loadFromFile(const std::string& filename) {
         file >> tx_count;
 
         for (size_t j = 0; j < tx_count; j++) {
-            std::string sender, receiver, signature;
+            std::string sender, receiver, signature, pubkey;
             double amount;
             long long tx_timestamp;
 
-            file >> sender >> receiver >> amount >> tx_timestamp >> signature;
+            file >> sender >> receiver >> amount >> tx_timestamp >> signature >> pubkey;
             if (signature == "-") {
                 signature.clear();
+            }
+            if (pubkey == "-") {
+                pubkey.clear();
             }
 
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
                                                     tx_timestamp, signature);
+            tx->setSenderPublicKey(pubkey);
             block->addTransaction(tx);
         }
 

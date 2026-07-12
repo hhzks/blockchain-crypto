@@ -106,3 +106,22 @@ TEST_CASE("saveToFile/loadFromFile roundtrip preserves chain state",
     REQUIRE(loaded.isChainValid());
     REQUIRE(loaded.getBalance(alice.address()) == 75.0);
 }
+
+TEST_CASE("saveToFile/loadFromFile preserves signed transaction public key",
+          "[unit][blockchain]") {
+    MinedChainFixture f;
+    KeyPairFixture alice;
+    f.seedFunds(alice.address(), 100.0, "miner_1");
+    auto tx = alice.signedTx("bob", 25.0);
+    f.chain.addTransaction(tx);
+    f.chain.minePendingTransactions("miner_1");
+
+    TempDir tmp;
+    std::string path = tmp.file("chain_pubkey.dat");
+    REQUIRE(f.chain.saveToFile(path));
+
+    Blockchain loaded(2, 50.0);
+    REQUIRE(loaded.loadFromFile(path));
+    auto loaded_tx = loaded.getLatestBlock()->getTransactions()[0];
+    REQUIRE(loaded_tx->getSenderPublicKey() == tx->getSenderPublicKey());
+}
