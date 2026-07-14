@@ -9,8 +9,7 @@ wallet key management, on-disk persistence, and a peer-to-peer node.
 
 - **Transactions** with real ECDSA signatures over secp256k1. `isValid()`
   verifies that the attached public key hashes to the sender address
-  (`deriveAddress(pubkey) == sender`) **and** that the signature verifies (
-  so a transaction proves the sender authorized it).
+  (`deriveAddress(pubkey) == sender`) **and** that the signature verifies (so a transaction proves the sender authorized it).
 - **Blocks** with Merkle roots, previous-hash linkage, and proof-of-work.
 - **Mining** with automatic difficulty adjustment (retargets every 10 blocks
   toward a target block time) and a mining reward.
