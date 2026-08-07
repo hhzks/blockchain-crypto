@@ -849,10 +849,6 @@ void P2PNode::handleDisconnect(std::shared_ptr<Peer> peer, const Message& msg) {
     removePeer(peer->getAddress());
 }
 
-bool P2PNode::sendToPeer(std::shared_ptr<Peer> peer, const Message& msg) {
-    return peer->send(msg);
-}
-
 void P2PNode::broadcast(const Message& msg, const std::string& exclude_peer) {
     std::vector<std::shared_ptr<Peer>> peer_list;
     
