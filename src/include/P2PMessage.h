@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <sstream>
 #include <memory>
+#include <chrono>
+#include <stdexcept>
 #include <format>
 #include "Block.h"
 #include "Transaction.h"
