@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <chrono>
+#include <limits>
 
 // Global P2P node pointer
 std::unique_ptr<p2p::P2PNode> p2pNode;
