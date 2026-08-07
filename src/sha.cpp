@@ -1,9 +1,9 @@
 #include <string>
 #include <vector>
 #include <format>
-#include <iostream>
 #include <cstring>
 #include <cstdint>
+#include "include/sha.h"
 
 namespace SHA256 {
     inline uint32_t rotr(uint32_t x, int n) {
