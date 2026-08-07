@@ -139,7 +139,6 @@ KeyPair::KeyPair() : public_key(G.pointAtInfinity()) {
 KeyPair::KeyPair(const BigInt& priv_key, const ECPoint& pub_key) 
     : private_key(priv_key), public_key(pub_key) {
     BigInt temp = priv_key;
-    if (temp < 0) temp = temp + secp256k1::N;
     
     const char* hex_chars = "0123456789abcdef";
     private_key_hex = "";
@@ -357,9 +356,6 @@ void bigIntToBytes32(const BigInt& num, uint8_t* output) {
     // Convert BigInt to hex string and pad to 64 hex chars (32 bytes)
     std::string hex;
     BigInt temp = num;
-    if (temp < 0) {
-        temp = temp + secp256k1::P;  // Handle negative numbers
-    }
     
     // Convert to hex manually
     const char* hexChars = "0123456789abcdef";
@@ -446,7 +442,6 @@ PublicKey compressPublicKey(const ECPoint& point) {
     // Determine prefix based on whether y is even or odd
     // y is even if y % 2 == 0
     BigInt yMod2 = y % 2;
-    if (yMod2 < 0) yMod2 = yMod2 + 2;  // Handle negative modulo
     
     result[0] = (yMod2 == 0) ? COMPRESSED_EVEN_PREFIX : COMPRESSED_ODD_PREFIX;
     
