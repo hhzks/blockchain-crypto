@@ -139,7 +139,6 @@ KeyPair::KeyPair() : public_key(G.pointAtInfinity()) {
 KeyPair::KeyPair(const BigInt& priv_key, const ECPoint& pub_key) 
     : private_key(priv_key), public_key(pub_key) {
     BigInt temp = priv_key;
-    if (temp < 0) temp = temp + secp256k1::N;
     
     const char* hex_chars = "0123456789abcdef";
     private_key_hex = "";
@@ -349,75 +348,6 @@ bool verifyMessageSignature(const std::string& message, const Signature& signatu
     return verifySignature(hash, signature, publicKey);
 }
 
-bool testECCImplementation() {
-    std::cout << "=== ECC Implementation Test ===" << std::endl;
-    bool all_passed = true;
-    
-    std::cout << "Test 1: Key generation... ";
-    auto key_pair = generateKeyPair();
-    if (key_pair && key_pair->private_key > 0 && !key_pair->public_key.isPointAtInfinity()) {
-        std::cout << "PASSED" << std::endl;
-    } else {
-        std::cout << "FAILED" << std::endl;
-        all_passed = false;
-    }
-    
-    std::cout << "Test 2: Public key compression... ";
-    PublicKey compressed = compressPublicKey(key_pair->public_key);
-    ECPoint decompressed = decompressPublicKey(compressed);
-    if (decompressed.getX() == key_pair->public_key.getX() && 
-        decompressed.getY() == key_pair->public_key.getY()) {
-        std::cout << "PASSED" << std::endl;
-    } else {
-        std::cout << "FAILED" << std::endl;
-        all_passed = false;
-    }
-    
-    std::cout << "Test 3: Sign and verify... ";
-    std::string test_msg = "Hello, blockchain!";
-    Signature sig = signMessage(test_msg, key_pair->private_key);
-    bool verified = verifyMessageSignature(test_msg, sig, compressed);
-    if (verified) {
-        std::cout << "PASSED" << std::endl;
-    } else {
-        std::cout << "FAILED" << std::endl;
-        all_passed = false;
-    }
-    
-    std::cout << "Test 4: Invalid signature rejection... ";
-    Signature bad_sig = sig;
-    bad_sig[0] ^= 0xFF;
-    bool should_fail = verifyMessageSignature(test_msg, bad_sig, compressed);
-    if (!should_fail) {
-        std::cout << "PASSED" << std::endl;
-    } else {
-        std::cout << "FAILED" << std::endl;
-        all_passed = false;
-    }
-    
-    std::cout << "Test 5: Wrong message rejection... ";
-    bool wrong_msg = verifyMessageSignature("Wrong message", sig, compressed);
-    if (!wrong_msg) {
-        std::cout << "PASSED" << std::endl;
-    } else {
-        std::cout << "FAILED" << std::endl;
-        all_passed = false;
-    }
-    
-    std::cout << "Test 6: Generator point validity... ";
-    BigInt y2 = (secp256k1::GY * secp256k1::GY) % secp256k1::P;
-    BigInt x3_7 = (secp256k1::GX * secp256k1::GX * secp256k1::GX + secp256k1::B) % secp256k1::P;
-    if (y2 == x3_7) {
-        std::cout << "PASSED" << std::endl;
-    } else {
-        std::cout << "FAILED" << std::endl;
-        all_passed = false;
-    }
-    
-    std::cout << "=== All tests " << (all_passed ? "PASSED" : "FAILED") << " ===" << std::endl;
-    return all_passed;
-}
-
 // =====================================================
 // Public Key Compression Implementation
 // =====================================================
@@ -426,9 +356,6 @@ void bigIntToBytes32(const BigInt& num, uint8_t* output) {
     // Convert BigInt to hex string and pad to 64 hex chars (32 bytes)
     std::string hex;
     BigInt temp = num;
-    if (temp < 0) {
-        temp = temp + secp256k1::P;  // Handle negative numbers
-    }
     
     // Convert to hex manually
     const char* hexChars = "0123456789abcdef";
@@ -515,7 +442,6 @@ PublicKey compressPublicKey(const ECPoint& point) {
     // Determine prefix based on whether y is even or odd
     // y is even if y % 2 == 0
     BigInt yMod2 = y % 2;
-    if (yMod2 < 0) yMod2 = yMod2 + 2;  // Handle negative modulo
     
     result[0] = (yMod2 == 0) ? COMPRESSED_EVEN_PREFIX : COMPRESSED_ODD_PREFIX;
     

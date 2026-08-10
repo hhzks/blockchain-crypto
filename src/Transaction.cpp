@@ -16,7 +16,7 @@ Transaction::Transaction(const std::string& from, const std::string& to, double 
 }
 
 std::string Transaction::calculateHash() const {
-    return utils::sha256(std::format("{}:{}:{:.8f}:{}", sender, receiver, amount, timestamp));
+    return utils::sha256(getTransactionData());
 }
 
 bool Transaction::signTransaction(const ECCrypto::PrivateKey& private_key) {

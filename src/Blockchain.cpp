@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <format>
 
-Blockchain::Blockchain() : difficulty(INITIAL_DIFFICULTY), mining_reward(100.0) {
+Blockchain::Blockchain() : difficulty(INITIAL_DIFFICULTY), mining_reward(INITIAL_MINING_REWARD) {
     chain.push_back(createGenesisBlock());
 }
 
