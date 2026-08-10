@@ -68,18 +68,18 @@ TECHNICAL_DOCS.md     Deeper, class-by-class reference
 ## Build & run
 
 ```bash
-# Configure and build the app (Release is strongly recommended — see note)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+# Configure and build the app
+cmake -S . -B build
 cmake --build build --target blockchain
 
 # Run the interactive CLI
 ./build/blockchain          # ./build/blockchain.exe on Windows
 ```
 
-> **Build Release, not Debug.** The `BigInt` arithmetic is intentionally naive;
-> at `-O0` the ECDSA sign/verify path is minutes-slow. `-DCMAKE_BUILD_TYPE=Release`
-> makes it fast. On Windows you may also want an explicit generator, e.g.
-> `-G "MinGW Makefiles"` or `-G Ninja`.
+> The build type defaults to `Release`, which is what you want: mining is a
+> brute-force loop and an unoptimised build makes it crawl. Pass
+> `-DCMAKE_BUILD_TYPE=Debug` if you actually want debug symbols. On Windows you
+> may also want an explicit generator, e.g. `-G "MinGW Makefiles"` or `-G Ninja`.
 
 ### The CLI
 
@@ -108,7 +108,7 @@ automatically via CMake `FetchContent` (needs network access on the first
 configure).
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+cmake -S . -B build -DBUILD_TESTS=ON
 cmake --build build --target blockchain_tests
 ctest --test-dir build --output-on-failure
 ```

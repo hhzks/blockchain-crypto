@@ -6,6 +6,15 @@ project(Blockchain)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Mining is unusably slow in an unoptimised build, so default to Release
+# rather than to CMake's empty (no-optimisation) build type. Multi-config
+# generators pick their configuration at build time and are left alone.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+        Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
 set(CORE_SOURCES
     src/Blockchain.cpp
     src/Block.cpp
@@ -42,11 +51,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_libraries(blockchain_core PUBLIC stdc++exp)
 endif()
 
-if(MSVC)
-    target_compile_options(blockchain_core PRIVATE /W4)
-else()
-    target_compile_options(blockchain_core PRIVATE -Wall -Wextra -Wpedantic)
-endif()
+# GCC/Clang only: bigint.h is built on __int128, which MSVC does not provide.
+target_compile_options(blockchain_core PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(blockchain src/main.cpp)
 target_link_libraries(blockchain PRIVATE blockchain_core)

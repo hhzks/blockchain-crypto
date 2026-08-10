@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 
+#ifndef __SIZEOF_INT128__
+#error "bigint.h requires a compiler with __int128 support (GCC or Clang)."
+#endif
+
 // Arbitrary-precision signed integer.
 // Sign-magnitude representation: `limbs` is the little-endian base-2^64
 // magnitude (limbs[0] least significant). Canonical form: no high zero
@@ -16,6 +20,14 @@
 // a % p is in [0, p) for positive p — the ECC layer depends on this.
 class BigInt {
 private:
+    // The double-width type the limb arithmetic below needs for carries and
+    // 64x64 products. `__int128` is a GCC/Clang extension, so -Wpedantic
+    // objects to every mention of it; `__extension__` silences that here, and
+    // the rest of the class spells the type as u128/i128 so the extension
+    // appears exactly once.
+    __extension__ using u128 = unsigned __int128;
+    __extension__ using i128 = __int128;
+
     std::vector<uint64_t> limbs;
     bool negative = false;
 
@@ -48,9 +60,9 @@ private:
         const size_t n = a.size() > b.size() ? a.size() : b.size();
         std::vector<uint64_t> result;
         result.reserve(n + 1);
-        unsigned __int128 carry = 0;
+        u128 carry = 0;
         for (size_t i = 0; i < n; ++i) {
-            unsigned __int128 sum = carry;
+            u128 sum = carry;
             if (i < a.size()) sum += a[i];
             if (i < b.size()) sum += b[i];
             result.push_back(static_cast<uint64_t>(sum));
@@ -64,12 +76,12 @@ private:
     static std::vector<uint64_t> subMagnitude(const std::vector<uint64_t>& a,
                                               const std::vector<uint64_t>& b) {
         std::vector<uint64_t> result(a.size());
-        __int128 borrow = 0;
+        i128 borrow = 0;
         for (size_t i = 0; i < a.size(); ++i) {
-            __int128 diff = static_cast<__int128>(a[i]) - borrow -
-                            (i < b.size() ? b[i] : 0);
+            i128 diff = static_cast<i128>(a[i]) - borrow -
+                        (i < b.size() ? b[i] : 0);
             if (diff < 0) {
-                diff += static_cast<__int128>(1) << 64;
+                diff += static_cast<i128>(1) << 64;
                 borrow = 1;
             } else {
                 borrow = 0;
@@ -84,16 +96,15 @@ private:
         if (a.empty() || b.empty()) return {};
         std::vector<uint64_t> result(a.size() + b.size(), 0);
         for (size_t i = 0; i < a.size(); ++i) {
-            unsigned __int128 carry = 0;
+            u128 carry = 0;
             for (size_t j = 0; j < b.size(); ++j) {
-                unsigned __int128 cur =
-                    static_cast<unsigned __int128>(a[i]) * b[j] +
-                    result[i + j] + carry;
+                u128 cur = static_cast<u128>(a[i]) * b[j] +
+                           result[i + j] + carry;
                 result[i + j] = static_cast<uint64_t>(cur);
                 carry = cur >> 64;
             }
             for (size_t k = i + b.size(); carry != 0; ++k) {
-                unsigned __int128 cur = result[k] + carry;
+                u128 cur = result[k] + carry;
                 result[k] = static_cast<uint64_t>(cur);
                 carry = cur >> 64;
             }
@@ -103,10 +114,9 @@ private:
 
     // *this = *this * multiplier + addend, on the magnitude. Sign untouched.
     void mulAddInPlace(uint64_t multiplier, uint64_t addend) {
-        unsigned __int128 carry = addend;
+        u128 carry = addend;
         for (uint64_t& limb : limbs) {
-            unsigned __int128 cur =
-                static_cast<unsigned __int128>(limb) * multiplier + carry;
+            u128 cur = static_cast<u128>(limb) * multiplier + carry;
             limb = static_cast<uint64_t>(cur);
             carry = cur >> 64;
         }
@@ -139,9 +149,9 @@ private:
         if (b.size() == 1) {
             const uint64_t d = b[0];
             quotient.assign(a.size(), 0);
-            unsigned __int128 rem = 0;
+            u128 rem = 0;
             for (size_t i = a.size(); i-- > 0;) {
-                unsigned __int128 cur = (rem << 64) | a[i];
+                u128 cur = (rem << 64) | a[i];
                 quotient[i] = static_cast<uint64_t>(cur / d);
                 rem = cur % d;
             }
@@ -156,7 +166,7 @@ private:
         const size_t n = b.size();
         const size_t m = a.size() - n;
         const int shift = std::countl_zero(b.back());
-        const unsigned __int128 BASE = static_cast<unsigned __int128>(1) << 64;
+        const u128 BASE = static_cast<u128>(1) << 64;
 
         std::vector<uint64_t> vn(n);
         std::vector<uint64_t> un(a.size() + 1, 0);
@@ -172,10 +182,10 @@ private:
 
         quotient.assign(m + 1, 0);
         for (size_t j = m + 1; j-- > 0;) {
-            unsigned __int128 numerator =
-                (static_cast<unsigned __int128>(un[j + n]) << 64) | un[j + n - 1];
-            unsigned __int128 qhat = numerator / vn[n - 1];
-            unsigned __int128 rhat = numerator % vn[n - 1];
+            u128 numerator =
+                (static_cast<u128>(un[j + n]) << 64) | un[j + n - 1];
+            u128 qhat = numerator / vn[n - 1];
+            u128 rhat = numerator % vn[n - 1];
             while (qhat >= BASE ||
                    qhat * vn[n - 2] > ((rhat << 64) | un[j + n - 2])) {
                 --qhat;
@@ -184,32 +194,31 @@ private:
             }
 
             // un[j .. j+n] -= qhat * vn[0 .. n-1]
-            unsigned __int128 mul_carry = 0;
-            __int128 borrow = 0;
+            u128 mul_carry = 0;
+            i128 borrow = 0;
             for (size_t i = 0; i < n; ++i) {
-                unsigned __int128 product = qhat * vn[i] + mul_carry;
+                u128 product = qhat * vn[i] + mul_carry;
                 mul_carry = product >> 64;
-                __int128 diff = static_cast<__int128>(un[i + j]) -
-                                static_cast<uint64_t>(product) - borrow;
+                i128 diff = static_cast<i128>(un[i + j]) -
+                            static_cast<uint64_t>(product) - borrow;
                 borrow = diff < 0 ? 1 : 0;
                 un[i + j] = static_cast<uint64_t>(diff);   // wraps mod 2^64
             }
-            __int128 top = static_cast<__int128>(un[j + n]) -
-                           static_cast<__int128>(mul_carry) - borrow;
+            i128 top = static_cast<i128>(un[j + n]) -
+                       static_cast<i128>(mul_carry) - borrow;
             un[j + n] = static_cast<uint64_t>(top);
 
             if (top < 0) {
                 // qhat was one too large: add the divisor back.
                 --qhat;
-                unsigned __int128 carry = 0;
+                u128 carry = 0;
                 for (size_t i = 0; i < n; ++i) {
-                    unsigned __int128 sum =
-                        static_cast<unsigned __int128>(un[i + j]) + vn[i] + carry;
+                    u128 sum = static_cast<u128>(un[i + j]) + vn[i] + carry;
                     un[i + j] = static_cast<uint64_t>(sum);
                     carry = sum >> 64;
                 }
                 un[j + n] = static_cast<uint64_t>(
-                    static_cast<unsigned __int128>(un[j + n]) + carry);
+                    static_cast<u128>(un[j + n]) + carry);
             }
             quotient[j] = static_cast<uint64_t>(qhat);
         }
@@ -401,9 +410,9 @@ public:
         std::vector<uint64_t> mag = limbs;
         std::vector<uint64_t> chunks;
         while (!mag.empty()) {
-            unsigned __int128 rem = 0;
+            u128 rem = 0;
             for (size_t i = mag.size(); i-- > 0;) {
-                unsigned __int128 cur = (rem << 64) | mag[i];
+                u128 cur = (rem << 64) | mag[i];
                 mag[i] = static_cast<uint64_t>(cur / chunk);
                 rem = cur % chunk;
             }
