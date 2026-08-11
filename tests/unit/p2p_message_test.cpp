@@ -14,6 +14,63 @@ TEST_CASE("Message serialize/deserialize roundtrip preserves type and payload",
     Message restored = Message::deserialize(bytes);
     REQUIRE(restored.getType() == MessageType::PING);
     REQUIRE(restored.getPayload() == "hello");
+    REQUIRE(restored.getSenderId() == "node_abc");
+}
+
+TEST_CASE("Message roundtrip preserves sender id independently of payload",
+          "[unit][p2p]") {
+    Message original(MessageType::NEW_BLOCK, "block_data", "sender-abc");
+    Message restored = Message::deserialize(original.serialize());
+    REQUIRE(restored.getSenderId() == "sender-abc");
+    REQUIRE(restored.getPayload() == "block_data");
+}
+
+TEST_CASE("Message roundtrip preserves a sender id set after construction",
+          "[unit][p2p]") {
+    Message original(MessageType::PONG, "payload");
+    original.setSenderId("late-sender");
+    Message restored = Message::deserialize(original.serialize());
+    REQUIRE(restored.getSenderId() == "late-sender");
+}
+
+TEST_CASE("Message roundtrip preserves an empty sender id", "[unit][p2p]") {
+    Message original(MessageType::GET_PEERS, "");
+    Message restored = Message::deserialize(original.serialize());
+    REQUIRE(restored.getSenderId().empty());
+    REQUIRE(restored.getPayload().empty());
+}
+
+TEST_CASE("Message roundtrip preserves a sender id holding delimiter bytes",
+          "[unit][p2p]") {
+    // The frame is length-prefixed, not delimited, so these must survive.
+    const std::string awkward("a|b:c\nd\0e", 9);
+    Message original(MessageType::PING, "payload", awkward);
+    Message restored = Message::deserialize(original.serialize());
+    REQUIRE(restored.getSenderId() == awkward);
+    REQUIRE(restored.getPayload() == "payload");
+}
+
+TEST_CASE("Message::deserialize rejects incomplete sender id", "[unit][p2p]") {
+    Message m(MessageType::PING, "", "a_long_sender_identifier");
+    auto bytes = m.serialize();
+    bytes.resize(bytes.size() - 4);
+    REQUIRE_THROWS_AS(Message::deserialize(bytes), std::runtime_error);
+}
+
+TEST_CASE("Message::deserialize rejects a payload truncated by the sender id",
+          "[unit][p2p]") {
+    // Declared sender id fits, but it pushes the payload past the buffer end.
+    Message m(MessageType::PING, "payload_here", "sender");
+    auto bytes = m.serialize();
+    bytes.resize(bytes.size() - 3);
+    REQUIRE_THROWS_AS(Message::deserialize(bytes), std::runtime_error);
+}
+
+TEST_CASE("Message::serialize rejects a sender id too long to frame",
+          "[unit][p2p]") {
+    Message m(MessageType::PING, "x",
+              std::string(Message::MAX_SENDER_ID_SIZE + 1, 'n'));
+    REQUIRE_THROWS_AS(m.serialize(), std::runtime_error);
 }
 
 TEST_CASE("Message::deserialize rejects truncated header", "[unit][p2p]") {
