@@ -68,9 +68,16 @@ private:
     int64_t timestamp;
     
 public:
+    // Wire frame, big-endian throughout:
+    //   magic(4) type(1) payload_len(4) timestamp(8) sender_len(2)
+    //   sender_id(sender_len) payload(payload_len)
+    // HEADER_SIZE is the fixed prefix only; a frame is HEADER_SIZE plus the
+    // two length-prefixed variable fields. Readers must consume both.
     static constexpr uint32_t MAGIC_NUMBER = 0x424C4B43; // "BLKC"
-    static constexpr size_t HEADER_SIZE = 17;
+    static constexpr size_t HEADER_SIZE = 19;
     static constexpr size_t MAX_PAYLOAD_SIZE = 10 * 1024 * 1024;
+    // Bounded by the 2-byte length prefix that carries it.
+    static constexpr size_t MAX_SENDER_ID_SIZE = 0xFFFF;
     
     Message() : type(MessageType::PING), timestamp(0) {}
     
@@ -91,8 +98,12 @@ public:
     void setSenderId(const std::string& id) { sender_id = id; }
     
     std::vector<uint8_t> serialize() const {
+        if (sender_id.size() > MAX_SENDER_ID_SIZE) {
+            throw std::runtime_error("Invalid message: sender id too long");
+        }
+
         std::vector<uint8_t> result;
-        
+
         // Magic number (4 bytes)
         result.push_back((MAGIC_NUMBER >> 24) & 0xFF);
         result.push_back((MAGIC_NUMBER >> 16) & 0xFF);
@@ -113,12 +124,22 @@ public:
         for (int i = 7; i >= 0; --i) {
             result.push_back((timestamp >> (i * 8)) & 0xFF);
         }
-        
+
+        // Sender id length (2 bytes)
+        uint16_t sender_len = static_cast<uint16_t>(sender_id.size());
+        result.push_back((sender_len >> 8) & 0xFF);
+        result.push_back(sender_len & 0xFF);
+
+        // Sender id
+        for (char c : sender_id) {
+            result.push_back(static_cast<uint8_t>(c));
+        }
+
         // Payload
         for (char c : payload) {
             result.push_back(static_cast<uint8_t>(c));
         }
-        
+
         return result;
     }
     
@@ -150,12 +171,22 @@ public:
             msg.timestamp = (msg.timestamp << 8) | data[9 + i];
         }
         
+        // Sender id
+        uint16_t sender_len = static_cast<uint16_t>((data[17] << 8) | data[18]);
+        if (data.size() < HEADER_SIZE + sender_len) {
+            throw std::runtime_error("Invalid message: incomplete sender id");
+        }
+        msg.sender_id = std::string(data.begin() + HEADER_SIZE,
+                                    data.begin() + HEADER_SIZE + sender_len);
+
         // Payload
-        if (data.size() < HEADER_SIZE + len) {
+        const size_t payload_start = HEADER_SIZE + sender_len;
+        if (data.size() < payload_start + len) {
             throw std::runtime_error("Invalid message: incomplete payload");
         }
-        msg.payload = std::string(data.begin() + HEADER_SIZE, data.begin() + HEADER_SIZE + len);
-        
+        msg.payload = std::string(data.begin() + payload_start,
+                                  data.begin() + payload_start + len);
+
         return msg;
     }
     

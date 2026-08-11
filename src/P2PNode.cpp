@@ -56,14 +56,19 @@ bool Peer::receive(Message& msg) {
     if (payload_len > Message::MAX_PAYLOAD_SIZE) {
         return false;
     }
-    
+
+    // The sender id is length-prefixed and sits between the fixed header and
+    // the payload, so both variable fields have to be read before parsing.
+    uint16_t sender_len = static_cast<uint16_t>((header[17] << 8) | header[18]);
+    const size_t body_len = static_cast<size_t>(sender_len) + payload_len;
+
     std::vector<uint8_t> full_data = header;
-    full_data.resize(Message::HEADER_SIZE + payload_len);
+    full_data.resize(Message::HEADER_SIZE + body_len);
     total_received = 0;
-    
-    while (total_received < payload_len) {
+
+    while (total_received < body_len) {
         int received = recv(socket, reinterpret_cast<char*>(full_data.data() + Message::HEADER_SIZE + total_received),
-                            static_cast<int>(payload_len - total_received), 0);
+                            static_cast<int>(body_len - total_received), 0);
         if (received <= 0) {
             return false;
         }
