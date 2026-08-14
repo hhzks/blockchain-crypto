@@ -67,4 +67,10 @@ bool checkProofOfWork(const std::string& hash, int difficulty) {
                        [](char c) { return c == '0'; });
 }
 
+int percentComplete(long long done, long long total) {
+    if (total <= 0 || done <= 0) return 0;
+    if (done >= total) return 100;
+    return static_cast<int>(done * 100 / total);
+}
+
 } // namespace utils

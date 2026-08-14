@@ -1,4 +1,5 @@
 #include "include/P2PNode.h"
+#include "include/utils.h"
 #include <sstream>
 #include <random>
 #include <algorithm>
@@ -768,15 +769,22 @@ void P2PNode::handleBlocks(std::shared_ptr<Peer> /*peer*/, const Message& msg) {
             }
             
             processed++;
-            
+
             if (callbacks.onSyncProgress) {
-                callbacks.onSyncProgress(processed * 100 / block_count);
+                // block_count is peer-supplied: 0 used to raise SIGFPE here and
+                // a negative value produced nonsense progress.
+                callbacks.onSyncProgress(utils::percentComplete(processed, block_count));
             }
         } catch (const std::exception& e) {
             log("Failed to deserialize block: " + std::string(e.what()));
         }
     }
-    
+
+    if (processed != block_count) {
+        log("Peer advertised " + std::to_string(block_count) + " blocks but sent "
+            + std::to_string(processed));
+    }
+
     syncing = false;
 }
 

@@ -40,4 +40,12 @@ namespace utils {
      * @return True if hash meets difficulty, false otherwise
      */
     bool checkProofOfWork(const std::string& hash, int difficulty);
+
+    /**
+     * Percentage of a job completed, clamped to [0, 100].
+     * @param done Units completed
+     * @param total Total units; a non-positive total yields 0 rather than dividing
+     * @return Progress percentage
+     */
+    int percentComplete(long long done, long long total);
 }

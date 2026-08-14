@@ -58,3 +58,19 @@ TEST_CASE("checkProofOfWork rejects out-of-range difficulty", "[unit][utils]") {
     // The boundary itself stays satisfiable.
     REQUIRE(utils::checkProofOfWork(zeros, 64));
 }
+
+// Issue #9: handleBlocks divided by a peer-supplied block count.
+TEST_CASE("percentComplete never divides by a non-positive total", "[unit][utils]") {
+    REQUIRE(utils::percentComplete(1, 0) == 0);
+    REQUIRE(utils::percentComplete(1, -1) == 0);
+    REQUIRE(utils::percentComplete(0, 0) == 0);
+}
+
+TEST_CASE("percentComplete reports bounded progress", "[unit][utils]") {
+    REQUIRE(utils::percentComplete(0, 10) == 0);
+    REQUIRE(utils::percentComplete(5, 10) == 50);
+    REQUIRE(utils::percentComplete(10, 10) == 100);
+    // A peer can claim fewer blocks than it sends; progress must still be sane.
+    REQUIRE(utils::percentComplete(20, 10) == 100);
+    REQUIRE(utils::percentComplete(-5, 10) == 0);
+}
