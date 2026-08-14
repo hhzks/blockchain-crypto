@@ -48,19 +48,19 @@ bool Peer::receive(Message& msg) {
     }
     
     // Verify magic number
-    uint32_t magic = (header[0] << 24) | (header[1] << 16) | (header[2] << 8) | header[3];
+    const uint32_t magic = readU32BE(header.data());
     if (magic != Message::MAGIC_NUMBER) {
         return false;
     }
-    
-    uint32_t payload_len = (header[5] << 24) | (header[6] << 16) | (header[7] << 8) | header[8];
+
+    const uint32_t payload_len = readU32BE(header.data() + 5);
     if (payload_len > Message::MAX_PAYLOAD_SIZE) {
         return false;
     }
 
     // The sender id is length-prefixed and sits between the fixed header and
     // the payload, so both variable fields have to be read before parsing.
-    uint16_t sender_len = static_cast<uint16_t>((header[17] << 8) | header[18]);
+    const uint16_t sender_len = readU16BE(header.data() + 17);
     const size_t body_len = static_cast<size_t>(sender_len) + payload_len;
 
     std::vector<uint8_t> full_data = header;

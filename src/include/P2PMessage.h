@@ -13,6 +13,49 @@
 
 namespace p2p {
 
+// Big-endian wire codecs. These exist because uint8_t integer-promotes to
+// *int*, not unsigned int: `byte << 24` shifts a bit into the sign bit of a
+// 32-bit int for any byte >= 0x80, which is undefined behaviour on input a
+// peer fully controls. Every shift below happens in an unsigned type.
+inline uint32_t readU32BE(const uint8_t* p) {
+    return (static_cast<uint32_t>(p[0]) << 24) |
+           (static_cast<uint32_t>(p[1]) << 16) |
+           (static_cast<uint32_t>(p[2]) <<  8) |
+            static_cast<uint32_t>(p[3]);
+}
+
+inline uint16_t readU16BE(const uint8_t* p) {
+    return static_cast<uint16_t>((static_cast<uint32_t>(p[0]) << 8) |
+                                  static_cast<uint32_t>(p[1]));
+}
+
+inline int64_t readI64BE(const uint8_t* p) {
+    uint64_t value = 0;
+    for (int i = 0; i < 8; ++i) {
+        value = (value << 8) | static_cast<uint64_t>(p[i]);
+    }
+    return static_cast<int64_t>(value);
+}
+
+inline void appendU32BE(std::vector<uint8_t>& out, uint32_t value) {
+    out.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
+    out.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((value >>  8) & 0xFF));
+    out.push_back(static_cast<uint8_t>( value        & 0xFF));
+}
+
+inline void appendU16BE(std::vector<uint8_t>& out, uint16_t value) {
+    out.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>( value       & 0xFF));
+}
+
+inline void appendI64BE(std::vector<uint8_t>& out, int64_t value) {
+    const uint64_t bits = static_cast<uint64_t>(value);
+    for (int i = 7; i >= 0; --i) {
+        out.push_back(static_cast<uint8_t>((bits >> (i * 8)) & 0xFF));
+    }
+}
+
 enum class MessageType : uint8_t {
     HANDSHAKE = 0x00,
     HANDSHAKE_ACK = 0x01,
@@ -105,30 +148,19 @@ public:
         std::vector<uint8_t> result;
 
         // Magic number (4 bytes)
-        result.push_back((MAGIC_NUMBER >> 24) & 0xFF);
-        result.push_back((MAGIC_NUMBER >> 16) & 0xFF);
-        result.push_back((MAGIC_NUMBER >> 8) & 0xFF);
-        result.push_back(MAGIC_NUMBER & 0xFF);
-        
+        appendU32BE(result, MAGIC_NUMBER);
+
         // Message type (1 byte)
         result.push_back(static_cast<uint8_t>(type));
-        
+
         // Payload length (4 bytes)
-        uint32_t len = static_cast<uint32_t>(payload.size());
-        result.push_back((len >> 24) & 0xFF);
-        result.push_back((len >> 16) & 0xFF);
-        result.push_back((len >> 8) & 0xFF);
-        result.push_back(len & 0xFF);
-        
+        appendU32BE(result, static_cast<uint32_t>(payload.size()));
+
         // Timestamp (8 bytes)
-        for (int i = 7; i >= 0; --i) {
-            result.push_back((timestamp >> (i * 8)) & 0xFF);
-        }
+        appendI64BE(result, timestamp);
 
         // Sender id length (2 bytes)
-        uint16_t sender_len = static_cast<uint16_t>(sender_id.size());
-        result.push_back((sender_len >> 8) & 0xFF);
-        result.push_back(sender_len & 0xFF);
+        appendU16BE(result, static_cast<uint16_t>(sender_id.size()));
 
         // Sender id
         for (char c : sender_id) {
@@ -151,28 +183,25 @@ public:
         }
         
         // Verify magic number
-        uint32_t magic = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
+        const uint32_t magic = readU32BE(data.data());
         if (magic != MAGIC_NUMBER) {
             throw std::runtime_error("Invalid message: bad magic number");
         }
-        
+
         // Message type
         msg.type = static_cast<MessageType>(data[4]);
-        
+
         // Payload length
-        uint32_t len = (data[5] << 24) | (data[6] << 16) | (data[7] << 8) | data[8];
+        const uint32_t len = readU32BE(data.data() + 5);
         if (len > MAX_PAYLOAD_SIZE) {
             throw std::runtime_error("Invalid message: payload too large");
         }
-        
+
         // Timestamp
-        msg.timestamp = 0;
-        for (int i = 0; i < 8; ++i) {
-            msg.timestamp = (msg.timestamp << 8) | data[9 + i];
-        }
-        
+        msg.timestamp = readI64BE(data.data() + 9);
+
         // Sender id
-        uint16_t sender_len = static_cast<uint16_t>((data[17] << 8) | data[18]);
+        const uint16_t sender_len = readU16BE(data.data() + 17);
         if (data.size() < HEADER_SIZE + sender_len) {
             throw std::runtime_error("Invalid message: incomplete sender id");
         }
