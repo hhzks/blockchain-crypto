@@ -3,6 +3,7 @@
 #include "include/ECCrypto.h"
 #include <format>
 #include <print>
+#include <cmath>
 
 Transaction::Transaction(const std::string& from, const std::string& to, double value)
     : sender(from), receiver(to), amount(value), timestamp(utils::getCurrentTimestamp()) {
@@ -121,8 +122,11 @@ bool Transaction::isValid() const {
         return false;
     }
     
-    if (amount <= 0) {
-        std::println(stderr, "Invalid transaction: Amount must be positive");
+    // NaN fails every comparison, so `amount <= 0` alone let it through, and
+    // INFINITY passes that check on its own merits. Either one permanently
+    // poisons a balance, since `balance < amount` is false for NaN too.
+    if (!std::isfinite(amount) || amount <= 0) {
+        std::println(stderr, "Invalid transaction: Amount must be positive and finite");
         return false;
     }
     

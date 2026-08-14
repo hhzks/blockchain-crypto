@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <limits>
 #include "Transaction.h"
 #include "ECCrypto.h"
 #include "bigint.h"
@@ -167,4 +168,33 @@ TEST_CASE("verifySignatureByAddress requires a real signature, not just a matchi
     test_support::KeyPairFixture kf;
     Transaction unsigned_tx(kf.address(), "receiver", 1.0);
     REQUIRE_FALSE(unsigned_tx.verifySignatureByAddress(kf.address()));
+}
+
+// Issue #13: every comparison against NaN is false, so `amount <= 0` let NaN
+// through, and INFINITY is genuinely > 0. Both then poison balances forever,
+// because `balance < amount` is also false for NaN.
+TEST_CASE("isValid rejects a NaN amount", "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+    Transaction t(kf.address(), "receiver", std::numeric_limits<double>::quiet_NaN());
+    REQUIRE(t.signTransaction(kf.privHex()));
+    REQUIRE_FALSE(t.isValid());
+}
+
+TEST_CASE("isValid rejects infinite amounts", "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+
+    Transaction positive(kf.address(), "receiver", std::numeric_limits<double>::infinity());
+    REQUIRE(positive.signTransaction(kf.privHex()));
+    REQUIRE_FALSE(positive.isValid());
+
+    Transaction negative(kf.address(), "receiver", -std::numeric_limits<double>::infinity());
+    REQUIRE(negative.signTransaction(kf.privHex()));
+    REQUIRE_FALSE(negative.isValid());
+}
+
+TEST_CASE("isValid still accepts an ordinary positive amount", "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+    Transaction t(kf.address(), "receiver", 1.5);
+    REQUIRE(t.signTransaction(kf.privHex()));
+    REQUIRE(t.isValid());
 }
