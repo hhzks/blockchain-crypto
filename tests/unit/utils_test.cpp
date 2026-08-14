@@ -74,3 +74,43 @@ TEST_CASE("percentComplete reports bounded progress", "[unit][utils]") {
     REQUIRE(utils::percentComplete(20, 10) == 100);
     REQUIRE(utils::percentComplete(-5, 10) == 0);
 }
+
+// Issue #23: std::cin >> int value-initialises to 0 on failure, and 0 is the
+// menu's Exit case, so any junk input quit the program.
+TEST_CASE("parseInt accepts a complete integer with surrounding space", "[unit][utils]") {
+    REQUIRE(utils::parseInt("3") == 3);
+    REQUIRE(utils::parseInt("  4  ") == 4);
+    REQUIRE(utils::parseInt("-7") == -7);
+    REQUIRE(utils::parseInt("0") == 0);
+    // Windows line endings survive getline on a text stream.
+    REQUIRE(utils::parseInt("5\r") == 5);
+}
+
+TEST_CASE("parseInt rejects anything that is not a whole integer", "[unit][utils]") {
+    REQUIRE_FALSE(utils::parseInt("").has_value());
+    REQUIRE_FALSE(utils::parseInt("   ").has_value());
+    REQUIRE_FALSE(utils::parseInt("q").has_value());
+    REQUIRE_FALSE(utils::parseInt("1x").has_value());
+    REQUIRE_FALSE(utils::parseInt("1 2").has_value());
+    REQUIRE_FALSE(utils::parseInt("0x10").has_value());
+    REQUIRE_FALSE(utils::parseInt("3.5").has_value());
+    // Out of int range must not silently wrap.
+    REQUIRE_FALSE(utils::parseInt("99999999999999999999").has_value());
+}
+
+TEST_CASE("parseDouble accepts finite decimal values", "[unit][utils]") {
+    REQUIRE(utils::parseDouble("2.5") == 2.5);
+    REQUIRE(utils::parseDouble("  10  ") == 10.0);
+    REQUIRE(utils::parseDouble("-3") == -3.0);
+    REQUIRE(utils::parseDouble("0") == 0.0);
+}
+
+TEST_CASE("parseDouble rejects junk and non-finite values", "[unit][utils]") {
+    REQUIRE_FALSE(utils::parseDouble("").has_value());
+    REQUIRE_FALSE(utils::parseDouble("abc").has_value());
+    REQUIRE_FALSE(utils::parseDouble("1.5x").has_value());
+    // from_chars parses these happily; a currency amount must not be either.
+    REQUIRE_FALSE(utils::parseDouble("nan").has_value());
+    REQUIRE_FALSE(utils::parseDouble("inf").has_value());
+    REQUIRE_FALSE(utils::parseDouble("-inf").has_value());
+}
