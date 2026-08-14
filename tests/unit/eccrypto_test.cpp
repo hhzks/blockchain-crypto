@@ -66,3 +66,35 @@ TEST_CASE("deriveAddress is deterministic and non-empty", "[unit][eccrypto]") {
     auto kp2 = ECCrypto::keyPairFromPrivateKeyHex(test_vectors::fixture_priv_hex);
     REQUIRE(kp->address == kp2->address);
 }
+
+// Issue #24: std::stoul skips leading whitespace, accepts a sign, and stops at
+// the first invalid character without reporting it, so junk decoded as "valid"
+// key and signature bytes.
+TEST_CASE("hexToBytes rejects non-hex input", "[unit][eccrypto]") {
+    uint8_t out[4] = {};
+
+    REQUIRE(ECCrypto::hexToBytes(" 5", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("5 ", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("-1", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("+7", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("0x", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("az", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("g0", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("\t1", out, sizeof(out)) == 0);
+}
+
+TEST_CASE("hexToBytes decodes valid hex in either case", "[unit][eccrypto]") {
+    uint8_t out[4] = {};
+    REQUIRE(ECCrypto::hexToBytes("00ffAb10", out, sizeof(out)) == 4);
+    REQUIRE(out[0] == 0x00);
+    REQUIRE(out[1] == 0xff);
+    REQUIRE(out[2] == 0xab);
+    REQUIRE(out[3] == 0x10);
+}
+
+TEST_CASE("hexToBytes rejects odd-length and oversized input", "[unit][eccrypto]") {
+    uint8_t out[4] = {};
+    REQUIRE(ECCrypto::hexToBytes("abc", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("0011223344", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("", out, sizeof(out)) == 0);
+}

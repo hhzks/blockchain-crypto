@@ -172,19 +172,31 @@ std::string bytesToHex(const uint8_t* data, size_t size) {
     return ss.str();
 }
 
+namespace {
+
+// Strict hex nibble. std::stoul was accepting leading whitespace, a leading
+// sign, and -- because nobody checked how much it consumed -- any prefix of a
+// valid number, so 64 characters of junk decoded to 32 "valid" key bytes.
+constexpr int hexNibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+} // namespace
+
 size_t hexToBytes(const std::string& hex, uint8_t* output, size_t maxSize) {
     if (hex.length() % 2 != 0) return 0;
-    
+
     size_t byteCount = hex.length() / 2;
     if (byteCount > maxSize) return 0;
-    
+
     for (size_t i = 0; i < byteCount; i++) {
-        std::string byteStr = hex.substr(i * 2, 2);
-        try {
-            output[i] = static_cast<uint8_t>(std::stoul(byteStr, nullptr, 16));
-        } catch (...) {
-            return 0;
-        }
+        const int hi = hexNibble(hex[i * 2]);
+        const int lo = hexNibble(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0) return 0;
+        output[i] = static_cast<uint8_t>((hi << 4) | lo);
     }
     return byteCount;
 }
@@ -374,10 +386,11 @@ void bigIntToBytes32(const BigInt& num, uint8_t* output) {
         hex = "0" + hex;
     }
     
-    // Convert hex string to bytes
+    // Convert hex string to bytes. The string is built above so it is always
+    // well-formed; this just avoids 32 substr allocations per call on a path
+    // that runs for every sign and verify.
     for (size_t i = 0; i < 32; i++) {
-        std::string byteStr = hex.substr(i * 2, 2);
-        output[i] = static_cast<uint8_t>(std::stoul(byteStr, nullptr, 16));
+        output[i] = static_cast<uint8_t>((hexNibble(hex[i * 2]) << 4) | hexNibble(hex[i * 2 + 1]));
     }
 }
 
