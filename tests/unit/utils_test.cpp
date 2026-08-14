@@ -42,3 +42,19 @@ TEST_CASE("bytesToHex produces expected hex", "[unit][utils]") {
     std::vector<unsigned char> data = {0x00, 0xff, 0xab, 0x10};
     REQUIRE(utils::bytesToHex(data) == "00ffab10");
 }
+
+// Issue #14: a negative difficulty reached std::string(count, char) as a huge
+// size_t and threw std::length_error; a huge positive one allocated gigabytes.
+TEST_CASE("checkProofOfWork rejects out-of-range difficulty", "[unit][utils]") {
+    const std::string zeros(64, '0');
+
+    REQUIRE_FALSE(utils::checkProofOfWork(zeros, -1));
+    REQUIRE_FALSE(utils::checkProofOfWork(zeros, -2000000000));
+
+    // A hash is 64 hex characters, so nothing beyond that can ever be satisfied.
+    REQUIRE_FALSE(utils::checkProofOfWork(zeros, 65));
+    REQUIRE_FALSE(utils::checkProofOfWork(zeros, 2000000000));
+
+    // The boundary itself stays satisfiable.
+    REQUIRE(utils::checkProofOfWork(zeros, 64));
+}

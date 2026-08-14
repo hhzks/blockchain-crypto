@@ -55,8 +55,16 @@ std::string bytesToHex(const std::vector<unsigned char>& data) {
 }
 
 bool checkProofOfWork(const std::string& hash, int difficulty) {
-    std::string target(difficulty, '0');
-    return hash.substr(0, difficulty) == target;
+    // A difficulty from a chain file or a peer is untrusted: a negative value
+    // used to convert to a huge size_t in std::string(count, char) and throw,
+    // and a huge positive one allocated gigabytes on every validation attempt.
+    if (difficulty < 0) return false;
+
+    const size_t required = static_cast<size_t>(difficulty);
+    if (required > hash.size()) return false; // unsatisfiable, not an error
+
+    return std::all_of(hash.begin(), hash.begin() + required,
+                       [](char c) { return c == '0'; });
 }
 
 } // namespace utils
