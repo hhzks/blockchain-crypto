@@ -23,9 +23,9 @@ TEST_CASE("priv=1 yields generator point G", "[unit][eccrypto]") {
 }
 
 TEST_CASE("sign/verify roundtrip with deterministic keypair", "[unit][eccrypto]") {
-    // Uses fixture key (small scalar) instead of generateKeyPair() because the
-    // codebase's naive BigInt scalar multiplication makes random-scalar keygen
-    // take minutes; the sign/verify contract is independent of key origin.
+    // Uses a fixture key so the roundtrip is deterministic and reproducible;
+    // the sign/verify contract is independent of key origin. (Random-scalar
+    // keygen is only tens of milliseconds -- see wallet_test.cpp.)
     auto kp = ECCrypto::keyPairFromPrivateKeyHex(test_vectors::fixture_priv_hex);
     REQUIRE(kp != nullptr);
 
