@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <string_view>
+#include <optional>
 #include <vector>
 #include <iomanip>
 #include <sstream>
@@ -40,4 +42,26 @@ namespace utils {
      * @return True if hash meets difficulty, false otherwise
      */
     bool checkProofOfWork(const std::string& hash, int difficulty);
+
+    /**
+     * Percentage of a job completed, clamped to [0, 100].
+     * @param done Units completed
+     * @param total Total units; a non-positive total yields 0 rather than dividing
+     * @return Progress percentage
+     */
+    int percentComplete(long long done, long long total);
+
+    /**
+     * Parse a whole string as a decimal int, allowing surrounding whitespace.
+     * @param text Text to parse
+     * @return The value, or std::nullopt if the text is not entirely one in-range integer
+     */
+    std::optional<int> parseInt(std::string_view text);
+
+    /**
+     * Parse a whole string as a finite decimal double, allowing surrounding whitespace.
+     * @param text Text to parse
+     * @return The value, or std::nullopt if the text is not entirely one finite number
+     */
+    std::optional<double> parseDouble(std::string_view text);
 }

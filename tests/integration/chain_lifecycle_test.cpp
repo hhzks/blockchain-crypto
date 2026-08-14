@@ -6,9 +6,10 @@
 
 using test_support::TempDir;
 
-// Uses importPrivateKey with small fixture scalars throughout to keep runtime
-// bounded — Wallet::generateNewAddress calls ECCrypto::generateKeyPair whose
-// naive BigInt scalar multiplication is minutes-slow for random keys.
+// Uses importPrivateKey with small fixture scalars throughout so the test is
+// deterministic. generateNewAddress is affordable too (tens of milliseconds
+// since the 64-bit-limb BigInt rewrite) and is covered in wallet_test.cpp;
+// mining, not ECC, is what dominates this test's runtime.
 TEST_CASE("End-to-end: wallet -> tx -> mine -> validate -> save -> load",
           "[integration][lifecycle]") {
     wallet::Wallet w;

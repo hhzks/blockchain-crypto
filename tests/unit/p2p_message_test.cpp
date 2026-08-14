@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <stdexcept>
+#include <limits>
 #include "P2PMessage.h"
 #include "Block.h"
 #include "Transaction.h"
@@ -178,4 +179,44 @@ TEST_CASE("All message factory helpers produce reparseable messages",
         Message r = Message::deserialize(c.msg.serialize());
         REQUIRE(r.getType() == c.expected);
     }
+}
+
+// Issue #16: the header decode shifted uint8_t values left by 24, and folded
+// bytes into an int64_t accumulator. uint8_t integer-promotes to int, not
+// unsigned int, so any byte >= 0x80 shifted a bit into the sign bit of a 32-bit
+// int -- undefined behaviour on attacker-controlled input.
+TEST_CASE("Message::deserialize decodes an all-ones timestamp as -1",
+          "[unit][p2p]") {
+    std::vector<uint8_t> frame(Message::HEADER_SIZE, 0);
+    frame[0] = 0x42; frame[1] = 0x4C; frame[2] = 0x4B; frame[3] = 0x43; // "BLKC"
+    frame[4] = static_cast<uint8_t>(MessageType::PING);
+    for (int i = 0; i < 8; ++i) frame[9 + i] = 0xFF; // timestamp bytes
+
+    const Message restored = Message::deserialize(frame);
+    REQUIRE(restored.getTimestamp() == -1);
+}
+
+TEST_CASE("Message::deserialize decodes a high-bit timestamp as INT64_MIN",
+          "[unit][p2p]") {
+    std::vector<uint8_t> frame(Message::HEADER_SIZE, 0);
+    frame[0] = 0x42; frame[1] = 0x4C; frame[2] = 0x4B; frame[3] = 0x43;
+    frame[4] = static_cast<uint8_t>(MessageType::PING);
+    frame[9] = 0x80; // top bit of the timestamp only
+
+    const Message restored = Message::deserialize(frame);
+    REQUIRE(restored.getTimestamp() == std::numeric_limits<int64_t>::min());
+}
+
+TEST_CASE("Message::deserialize rejects a high-bit magic number", "[unit][p2p]") {
+    std::vector<uint8_t> frame(Message::HEADER_SIZE, 0);
+    frame[0] = 0xC2; frame[1] = 0x4C; frame[2] = 0x4B; frame[3] = 0x43;
+    REQUIRE_THROWS_AS(Message::deserialize(frame), std::runtime_error);
+}
+
+TEST_CASE("Message::deserialize rejects a high-bit payload length", "[unit][p2p]") {
+    std::vector<uint8_t> frame(Message::HEADER_SIZE, 0);
+    frame[0] = 0x42; frame[1] = 0x4C; frame[2] = 0x4B; frame[3] = 0x43;
+    frame[4] = static_cast<uint8_t>(MessageType::PING);
+    frame[5] = 0xFF; frame[6] = 0xFF; frame[7] = 0xFF; frame[8] = 0xFF;
+    REQUIRE_THROWS_AS(Message::deserialize(frame), std::runtime_error);
 }

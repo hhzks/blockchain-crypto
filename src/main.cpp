@@ -8,9 +8,71 @@
 #include <string>
 #include <chrono>
 #include <limits>
+#include <optional>
 
 // Global P2P node pointer
 std::unique_ptr<p2p::P2PNode> p2pNode;
+
+namespace {
+
+// Every prompt reads a whole line. Mixing operator>> with std::getline leaves
+// the newline behind and desynchronises the next read, and a failed operator>>
+// value-initialises its target -- which is how junk at the menu used to select
+// case 0 (Exit) and quit the program.
+// Returns false only at end of input, so callers can shut down cleanly.
+bool promptLine(const std::string& prompt, std::string& out) {
+    std::cout << prompt;
+    return static_cast<bool>(std::getline(std::cin, out));
+}
+
+bool isBlank(const std::string& text) {
+    return text.find_first_not_of(" \t\r\n\f\v") == std::string::npos;
+}
+
+std::optional<int> promptInt(const std::string& prompt) {
+    std::string line;
+    while (promptLine(prompt, line)) {
+        if (auto value = utils::parseInt(line)) return value;
+        std::cout << "Please enter a whole number." << std::endl;
+    }
+    return std::nullopt;
+}
+
+std::optional<double> promptDouble(const std::string& prompt) {
+    std::string line;
+    while (promptLine(prompt, line)) {
+        if (auto value = utils::parseDouble(line)) return value;
+        std::cout << "Please enter a number." << std::endl;
+    }
+    return std::nullopt;
+}
+
+// A blank line takes the default when one is offered.
+std::optional<uint16_t> promptPort(const std::string& prompt,
+                                   std::optional<uint16_t> default_port = std::nullopt) {
+    std::string line;
+    while (promptLine(prompt, line)) {
+        if (isBlank(line) && default_port) return default_port;
+        const auto value = utils::parseInt(line);
+        if (value && *value >= 1 && *value <= 65535) {
+            return static_cast<uint16_t>(*value);
+        }
+        std::cout << "Please enter a port between 1 and 65535." << std::endl;
+    }
+    return std::nullopt;
+}
+
+// Non-empty free text (an address, a filename).
+std::optional<std::string> promptText(const std::string& prompt) {
+    std::string line;
+    while (promptLine(prompt, line)) {
+        if (!isBlank(line)) return line;
+        std::cout << "Please enter a value." << std::endl;
+    }
+    return std::nullopt;
+}
+
+} // namespace
 
 void displayMenu() {
     std::cout << "\n=== LOCAL BLOCKCHAIN ===" << std::endl;
@@ -78,40 +140,27 @@ void startP2PNode(Blockchain& blockchain) {
         return;
     }
     
-    uint16_t port;
-    std::cout << "Enter port to listen on (default 8333): ";
-    std::string portStr;
-    std::cin >> portStr;
-    
-    try {
-        port = portStr.empty() ? 8333 : static_cast<uint16_t>(std::stoi(portStr));
-    } catch (...) {
-        port = 8333;
-    }
-    
+    const auto port = promptPort("Enter port to listen on (default 8333): ", uint16_t{8333});
+    if (!port) return;
+
     p2p::P2PConfig config;
-    config.listen_port = port;
+    config.listen_port = *port;
     config.max_peers = 25;
     config.min_peers = 3;
     config.enable_logging = true;
-    
-    std::cout << "Add seed node? (y/n): ";
-    char add_seed;
-    std::cin >> add_seed;
-    
-    while (add_seed == 'y' || add_seed == 'Y') {
-        std::string seed_ip;
-        uint16_t seed_port;
-        
-        std::cout << "Enter seed node IP: ";
-        std::cin >> seed_ip;
-        std::cout << "Enter seed node port: ";
-        std::cin >> seed_port;
-        
-        config.seed_nodes.push_back(seed_ip + ":" + std::to_string(seed_port));
-        
-        std::cout << "Add another seed node? (y/n): ";
-        std::cin >> add_seed;
+
+    std::string answer;
+    if (!promptLine("Add seed node? (y/n): ", answer)) return;
+
+    while (!answer.empty() && (answer[0] == 'y' || answer[0] == 'Y')) {
+        const auto seed_ip = promptText("Enter seed node IP: ");
+        if (!seed_ip) return;
+        const auto seed_port = promptPort("Enter seed node port: ");
+        if (!seed_port) return;
+
+        config.seed_nodes.push_back(*seed_ip + ":" + std::to_string(*seed_port));
+
+        if (!promptLine("Add another seed node? (y/n): ", answer)) return;
     }
     
     p2pNode = std::make_unique<p2p::P2PNode>(&blockchain, config);
@@ -144,18 +193,15 @@ void connectToPeer() {
         return;
     }
     
-    std::string ip;
-    uint16_t port;
-    
-    std::cout << "Enter peer IP address: ";
-    std::cin >> ip;
-    std::cout << "Enter peer port: ";
-    std::cin >> port;
-    
-    if (p2pNode->connectToPeer(ip, port)) {
-        std::cout << "Connection initiated to " << ip << ":" << port << std::endl;
+    const auto ip = promptText("Enter peer IP address: ");
+    if (!ip) return;
+    const auto port = promptPort("Enter peer port: ");
+    if (!port) return;
+
+    if (p2pNode->connectToPeer(*ip, *port)) {
+        std::cout << "Connection initiated to " << *ip << ":" << *port << std::endl;
     } else {
-        std::cout << "Failed to connect to " << ip << ":" << port << std::endl;
+        std::cout << "Failed to connect to " << *ip << ":" << *port << std::endl;
     }
 }
 
@@ -210,65 +256,74 @@ int main() {
     std::cout << "=================================" << std::endl;
     
     Blockchain blockchain;
-    
-    int choice;
-    std::string input;
-    
+
+    auto shutdown = []() {
+        if (p2pNode && p2pNode->isRunning()) {
+            std::cout << "Stopping P2P node..." << std::endl;
+            p2pNode->stop();
+        }
+        std::cout << "Goodbye!" << std::endl;
+    };
+
     while (true) {
         displayMenu();
 
-        if (std::cin.fail()){
-        std::cin.clear();
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::string line;
+        if (!std::getline(std::cin, line)) {
+            // Real end of input (Ctrl-D / Ctrl-Z / closed pipe), not junk.
+            std::cout << std::endl;
+            shutdown();
+            return 0;
         }
-        std::cin >> choice;
 
-        switch (choice) {
+        const auto parsed = utils::parseInt(line);
+        if (!parsed) {
+            std::cout << "Invalid choice! Please try again." << std::endl;
+            continue;
+        }
+
+        switch (*parsed) {
             case 1: {
-                std::string sender, receiver;
-                double amount;
-                
-                std::cout << "Enter sender address: ";
-                std::cin >> sender;
-                std::cout << "Enter receiver address: ";
-                std::cin >> receiver;
-                std::cout << "Enter amount: ";
-                std::cin >> amount;
-                
+                const auto sender = promptText("Enter sender address: ");
+                if (!sender) break;
+                const auto receiver = promptText("Enter receiver address: ");
+                if (!receiver) break;
+                const auto parsed_amount = promptDouble("Enter amount: ");
+                if (!parsed_amount) break;
+                const double amount = *parsed_amount;
+
                 // Demo key management: derive a deterministic private key from
                 // the sender name, then transact from the address that key
                 // actually controls. isValid() now binds the signature to
                 // deriveAddress(pubkey), so a free-text sender is rejected.
-                std::string demo_priv = utils::sha256(sender + "_private_key");
+                std::string demo_priv = utils::sha256(*sender + "_private_key");
                 auto demo_kp = ECCrypto::keyPairFromPrivateKeyHex(demo_priv);
                 if (!demo_kp) {
-                    std::cout << "Failed to derive a key for sender '" << sender
+                    std::cout << "Failed to derive a key for sender '" << *sender
                               << "'" << std::endl;
                     break;
                 }
                 std::cout << "Using address " << demo_kp->address
-                          << " for '" << sender << "'" << std::endl;
+                          << " for '" << *sender << "'" << std::endl;
                 auto transaction = std::make_shared<Transaction>(
-                    demo_kp->address, receiver, amount);
+                    demo_kp->address, *receiver, amount);
                 transaction->signTransaction(demo_priv);
                 blockchain.addTransaction(transaction);
                 break;
             }
             
             case 2: {
-                std::string minerAddress;
-                std::cout << "Enter miner address: ";
-                std::cin >> minerAddress;
-                blockchain.minePendingTransactions(minerAddress);
+                const auto minerAddress = promptText("Enter miner address: ");
+                if (!minerAddress) break;
+                blockchain.minePendingTransactions(*minerAddress);
                 break;
             }
-            
+
             case 3: {
-                std::string address;
-                std::cout << "Enter address to check: ";
-                std::cin >> address;
-                double balance = blockchain.getBalance(address);
-                std::cout << "Balance for " << address << ": " << balance << std::endl;
+                const auto address = promptText("Enter address to check: ");
+                if (!address) break;
+                double balance = blockchain.getBalance(*address);
+                std::cout << "Balance for " << *address << ": " << balance << std::endl;
                 break;
             }
             
@@ -284,18 +339,16 @@ int main() {
             }
             
             case 6: {
-                std::string filename;
-                std::cout << "Enter filename to save: ";
-                std::cin >> filename;
-                blockchain.saveToFile(filename);
+                const auto filename = promptText("Enter filename to save: ");
+                if (!filename) break;
+                blockchain.saveToFile(*filename);
                 break;
             }
-            
+
             case 7: {
-                std::string filename;
-                std::cout << "Enter filename to load: ";
-                std::cin >> filename;
-                blockchain.loadFromFile(filename);
+                const auto filename = promptText("Enter filename to load: ");
+                if (!filename) break;
+                blockchain.loadFromFile(*filename);
                 break;
             }
             
@@ -331,11 +384,7 @@ int main() {
             }
             
             case 0: {
-                if (p2pNode && p2pNode->isRunning()) {
-                    std::cout << "Stopping P2P node..." << std::endl;
-                    p2pNode->stop();
-                }
-                std::cout << "Goodbye!" << std::endl;
+                shutdown();
                 return 0;
             }
             

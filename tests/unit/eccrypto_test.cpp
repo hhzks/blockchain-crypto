@@ -23,9 +23,9 @@ TEST_CASE("priv=1 yields generator point G", "[unit][eccrypto]") {
 }
 
 TEST_CASE("sign/verify roundtrip with deterministic keypair", "[unit][eccrypto]") {
-    // Uses fixture key (small scalar) instead of generateKeyPair() because the
-    // codebase's naive BigInt scalar multiplication makes random-scalar keygen
-    // take minutes; the sign/verify contract is independent of key origin.
+    // Uses a fixture key so the roundtrip is deterministic and reproducible;
+    // the sign/verify contract is independent of key origin. (Random-scalar
+    // keygen is only tens of milliseconds -- see wallet_test.cpp.)
     auto kp = ECCrypto::keyPairFromPrivateKeyHex(test_vectors::fixture_priv_hex);
     REQUIRE(kp != nullptr);
 
@@ -65,4 +65,36 @@ TEST_CASE("deriveAddress is deterministic and non-empty", "[unit][eccrypto]") {
 
     auto kp2 = ECCrypto::keyPairFromPrivateKeyHex(test_vectors::fixture_priv_hex);
     REQUIRE(kp->address == kp2->address);
+}
+
+// Issue #24: std::stoul skips leading whitespace, accepts a sign, and stops at
+// the first invalid character without reporting it, so junk decoded as "valid"
+// key and signature bytes.
+TEST_CASE("hexToBytes rejects non-hex input", "[unit][eccrypto]") {
+    uint8_t out[4] = {};
+
+    REQUIRE(ECCrypto::hexToBytes(" 5", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("5 ", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("-1", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("+7", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("0x", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("az", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("g0", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("\t1", out, sizeof(out)) == 0);
+}
+
+TEST_CASE("hexToBytes decodes valid hex in either case", "[unit][eccrypto]") {
+    uint8_t out[4] = {};
+    REQUIRE(ECCrypto::hexToBytes("00ffAb10", out, sizeof(out)) == 4);
+    REQUIRE(out[0] == 0x00);
+    REQUIRE(out[1] == 0xff);
+    REQUIRE(out[2] == 0xab);
+    REQUIRE(out[3] == 0x10);
+}
+
+TEST_CASE("hexToBytes rejects odd-length and oversized input", "[unit][eccrypto]") {
+    uint8_t out[4] = {};
+    REQUIRE(ECCrypto::hexToBytes("abc", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("0011223344", out, sizeof(out)) == 0);
+    REQUIRE(ECCrypto::hexToBytes("", out, sizeof(out)) == 0);
 }
