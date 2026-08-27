@@ -1,5 +1,6 @@
 #include "include/P2PNode.h"
 #include "include/utils.h"
+#include <cerrno>
 #include <sstream>
 #include <random>
 #include <algorithm>
@@ -30,59 +31,96 @@ bool Peer::send(const Message& msg) {
     return true;
 }
 
-bool Peer::receive(Message& msg) {
-    if (socket == INVALID_SOCK) {
-        return false;
-    }
-    
-    std::vector<uint8_t> header(Message::HEADER_SIZE);
-    size_t total_received = 0;
-    
-    while (total_received < Message::HEADER_SIZE) {
-        int received = recv(socket, reinterpret_cast<char*>(header.data() + total_received),
-                            static_cast<int>(Message::HEADER_SIZE - total_received), 0);
-        if (received <= 0) {
-            return false;
-        }
-        total_received += received;
-    }
-    
-    // Verify magic number
-    const uint32_t magic = readU32BE(header.data());
-    if (magic != Message::MAGIC_NUMBER) {
-        return false;
+namespace {
+
+// A frame is the fixed header plus a 16-bit-counted sender id plus the
+// payload, so this is the largest a legitimate one can be.
+constexpr size_t MAX_FRAME_SIZE =
+    Message::HEADER_SIZE + 0xFFFF + Message::MAX_PAYLOAD_SIZE;
+
+// Cap on messages drained from one peer per readable event, so a peer that
+// keeps its socket hot cannot starve the others.
+constexpr int MAX_MESSAGES_PER_ROUND = 32;
+
+int64_t nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+int lastSocketError() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+} // namespace
+
+ReceiveStatus Peer::extractMessage(Message& msg) {
+    if (recv_buffer.size() < Message::HEADER_SIZE) {
+        return ReceiveStatus::Incomplete;
     }
 
-    const uint32_t payload_len = readU32BE(header.data() + 5);
+    if (readU32BE(recv_buffer.data()) != Message::MAGIC_NUMBER) {
+        return ReceiveStatus::Closed;
+    }
+
+    const uint32_t payload_len = readU32BE(recv_buffer.data() + 5);
     if (payload_len > Message::MAX_PAYLOAD_SIZE) {
-        return false;
+        return ReceiveStatus::Closed;
     }
 
     // The sender id is length-prefixed and sits between the fixed header and
-    // the payload, so both variable fields have to be read before parsing.
-    const uint16_t sender_len = readU16BE(header.data() + 17);
-    const size_t body_len = static_cast<size_t>(sender_len) + payload_len;
+    // the payload, so both variable fields size the frame.
+    const uint16_t sender_len = readU16BE(recv_buffer.data() + 17);
+    const size_t frame_size =
+        Message::HEADER_SIZE + static_cast<size_t>(sender_len) + payload_len;
 
-    std::vector<uint8_t> full_data = header;
-    full_data.resize(Message::HEADER_SIZE + body_len);
-    total_received = 0;
-
-    while (total_received < body_len) {
-        int received = recv(socket, reinterpret_cast<char*>(full_data.data() + Message::HEADER_SIZE + total_received),
-                            static_cast<int>(body_len - total_received), 0);
-        if (received <= 0) {
-            return false;
-        }
-        total_received += received;
+    if (recv_buffer.size() < frame_size) {
+        return ReceiveStatus::Incomplete;
     }
-    
+
     try {
-        msg = Message::deserialize(full_data);
-        updateLastSeen();
-        return true;
+        msg = Message::deserialize(std::vector<uint8_t>(
+            recv_buffer.begin(), recv_buffer.begin() + frame_size));
     } catch (...) {
-        return false;
+        return ReceiveStatus::Closed;
     }
+
+    recv_buffer.erase(recv_buffer.begin(), recv_buffer.begin() + frame_size);
+    updateLastSeen();
+    return ReceiveStatus::Message;
+}
+
+ReceiveStatus Peer::nextBufferedMessage(Message& msg) {
+    if (socket == INVALID_SOCK) {
+        return ReceiveStatus::Closed;
+    }
+    return extractMessage(msg);
+}
+
+ReceiveStatus Peer::pollReceive(Message& msg) {
+    if (socket == INVALID_SOCK) {
+        return ReceiveStatus::Closed;
+    }
+
+    // Exactly one read. The caller only gets here when select() said the
+    // socket is readable, so this returns as soon as any bytes are available
+    // and never waits for the rest of a partial frame.
+    uint8_t chunk[4096];
+    const int received = recv(socket, reinterpret_cast<char*>(chunk),
+                              static_cast<int>(sizeof chunk), 0);
+    if (received <= 0) {
+        return ReceiveStatus::Closed;
+    }
+
+    recv_buffer.insert(recv_buffer.end(), chunk, chunk + received);
+    if (recv_buffer.size() > MAX_FRAME_SIZE) {
+        return ReceiveStatus::Closed;
+    }
+
+    return extractMessage(msg);
 }
 
 P2PNode::P2PNode(Blockchain* chain, const P2PConfig& cfg)
@@ -186,7 +224,14 @@ void P2PNode::stop() {
         return;
     }
     
-    running = false;
+    // The store has to happen under stop_mutex: a worker that has evaluated
+    // the predicate as false but has not yet blocked on the condition variable
+    // would otherwise miss the notification and sleep out its whole interval
+    // (30s for pings, 60s for sync), which stop() then waits on in join().
+    {
+        std::scoped_lock lock(stop_mutex);
+        running = false;
+    }
     stop_condition.notify_all();
     
     if (listen_socket != INVALID_SOCK) {
@@ -324,6 +369,7 @@ void P2PNode::removePeer(const std::string& address) {
     }
     
     log("Peer removed: " + address);
+    cancelSyncIfPeer(address, "peer " + address + " disconnected");
     
     if (callbacks.onPeerDisconnected) {
         callbacks.onPeerDisconnected(peer);
@@ -429,6 +475,15 @@ void P2PNode::acceptConnections() {
         if (!running) break;
         
         if (client_sock == INVALID_SOCK) {
+            // A persistent listen-socket error -- descriptor exhaustion is the
+            // realistic one, and it is reachable because every accepted
+            // connection holds a socket until its peer is removed -- used to
+            // spin this loop at 100% of a core. Back off, and stay woken by
+            // stop().
+            log("accept() failed with error " + std::to_string(lastSocketError()));
+            std::unique_lock<std::mutex> lock(stop_mutex);
+            stop_condition.wait_for(lock, std::chrono::milliseconds(100),
+                                    [this] { return !running.load(); });
             continue;
         }
         
@@ -473,49 +528,84 @@ void P2PNode::acceptConnections() {
 void P2PNode::receiveMessages() {
     while (running) {
         std::vector<std::pair<std::string, std::shared_ptr<Peer>>> current_peers;
-        
+
         {
             std::scoped_lock lock(peers_mutex);
             for (const auto& [addr, peer] : peers) {
                 current_peers.push_back({addr, peer});
             }
         }
-        
-        for (auto& [addr, peer] : current_peers) {
+
+        // One select over every peer socket, rather than a 100ms select per
+        // peer plus a fixed 50ms sleep: message latency no longer grows with
+        // the peer count, and shutdown is noticed within one timeout.
+        fd_set read_set;
+        FD_ZERO(&read_set);
+        SocketType max_socket = 0;
+        size_t watched = 0;
+
+        for (const auto& [addr, peer] : current_peers) {
+            const SocketType sock = peer->getSocket();
+            if (sock == INVALID_SOCK) continue;
+            if (watched >= FD_SETSIZE) break;
+#ifndef _WIN32
+            // POSIX fd_set is indexed by descriptor number.
+            if (sock >= FD_SETSIZE) continue;
+#endif
+            FD_SET(sock, &read_set);
+            watched++;
+            if (sock > max_socket) max_socket = sock;
+        }
+
+        if (watched == 0) {
+            std::unique_lock<std::mutex> lock(stop_mutex);
+            stop_condition.wait_for(lock, std::chrono::milliseconds(100),
+                                    [this] { return !running.load(); });
+            continue;
+        }
+
+        timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; // 100ms
+
+        const int ready = select(static_cast<int>(max_socket + 1), &read_set,
+                                 nullptr, nullptr, &tv);
+        if (ready <= 0) {
+            continue; // timeout, or a peer was removed under us; re-poll
+        }
+
+        for (const auto& [addr, peer] : current_peers) {
             if (!running) break;
-            
-            // Use select() for non-blocking check
-            fd_set readSet;
-            FD_ZERO(&readSet);
-            FD_SET(peer->getSocket(), &readSet);
-            
-            timeval tv;
-            tv.tv_sec = 0;
-            tv.tv_usec = 100000; // 100ms
-            
-            int result = select(static_cast<int>(peer->getSocket() + 1), &readSet, nullptr, nullptr, &tv);
-            
-            if (result > 0 && FD_ISSET(peer->getSocket(), &readSet)) {
-                Message msg;
-                if (peer->receive(msg)) {
-                    // Backstop: an exception escaping a handler would leave
-                    // this jthread and terminate the process. One bad peer
-                    // must cost that peer, not the node.
-                    try {
-                        handleMessage(peer, msg);
-                    } catch (const std::exception& e) {
-                        log("Dropping peer " + addr + " after handler error: " +
-                            std::string(e.what()));
-                        removePeer(addr);
-                    }
-                } else {
-                    // Connection lost
-                    removePeer(addr);
+
+            const SocketType sock = peer->getSocket();
+            if (sock == INVALID_SOCK || !FD_ISSET(sock, &read_set)) continue;
+
+            Message msg;
+            ReceiveStatus status = peer->pollReceive(msg);
+
+            for (int drained = 0;
+                 status == ReceiveStatus::Message && drained < MAX_MESSAGES_PER_ROUND;
+                 drained++) {
+                // Backstop: an exception escaping a handler would leave this
+                // jthread and terminate the process. One bad peer must cost
+                // that peer, not the node.
+                try {
+                    handleMessage(peer, msg);
+                } catch (const std::exception& e) {
+                    log("Dropping peer " + addr + " after handler error: " +
+                        std::string(e.what()));
+                    status = ReceiveStatus::Closed;
+                    break;
                 }
+                // Anything else that arrived in the same read, without
+                // touching the socket again.
+                status = peer->nextBufferedMessage(msg);
+            }
+
+            if (status == ReceiveStatus::Closed) {
+                removePeer(addr);
             }
         }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 }
 
@@ -552,20 +642,32 @@ void P2PNode::pingPeers() {
 }
 
 void P2PNode::syncPeriodically() {
+    // Ticks far more often than sync_interval so a stalled request is noticed
+    // promptly; the periodic work itself still runs on its own schedule.
+    constexpr int64_t tick_ms = 250;
+    int64_t next_round = nowMs() + config.sync_interval;
+
     while (running) {
         {
             std::unique_lock<std::mutex> lock(stop_mutex);
-            stop_condition.wait_for(lock, std::chrono::milliseconds(config.sync_interval),
+            stop_condition.wait_for(lock, std::chrono::milliseconds(tick_ms),
                                    [this] { return !running.load(); });
         }
-        
+
         if (!running) break;
-        
+
+        cancelStalledSync();
+
+        if (nowMs() < next_round) {
+            continue;
+        }
+        next_round = nowMs() + config.sync_interval;
+
         if (getPeerCount() < config.min_peers) {
             auto msg = Message::createGetPeers();
             broadcast(msg);
         }
-        
+
         requestSync();
     }
 }
@@ -611,6 +713,9 @@ void P2PNode::handleMessage(std::shared_ptr<Peer> peer, const Message& msg) {
             break;
         case MessageType::NEW_TRANSACTION:
             handleNewTransaction(peer, msg);
+            break;
+        case MessageType::ERROR_MSG:
+            handleError(peer, msg);
             break;
         case MessageType::DISCONNECT:
             handleDisconnect(peer, msg);
@@ -671,6 +776,13 @@ void P2PNode::handleHandshake(std::shared_ptr<Peer> peer, const Message& msg) {
     if (peer_height > static_cast<int64_t>(blockchain->getChainSize())) {
         syncWithPeer(peer);
     }
+}
+
+void P2PNode::handleError(std::shared_ptr<Peer> peer, const Message& msg) {
+    // handleGetBlocks answers a bad range with one of these, and nothing used
+    // to handle it: the requester's sync latched on forever.
+    log("Error from " + peer->getAddress() + ": " + msg.getPayload());
+    cancelSyncIfPeer(peer->getAddress(), "peer reported: " + msg.getPayload());
 }
 
 void P2PNode::handlePing(std::shared_ptr<Peer> peer, const Message& /*msg*/) {
@@ -776,7 +888,7 @@ void P2PNode::handleGetBlocks(std::shared_ptr<Peer> peer, const Message& msg) {
     peer->send(response);
 }
 
-void P2PNode::handleBlocks(std::shared_ptr<Peer> /*peer*/, const Message& msg) {
+void P2PNode::handleBlocks(std::shared_ptr<Peer> peer, const Message& msg) {
     std::istringstream iss(msg.getPayload());
     std::string line;
     
@@ -784,7 +896,7 @@ void P2PNode::handleBlocks(std::shared_ptr<Peer> /*peer*/, const Message& msg) {
     auto parsed_count = utils::parseInt(line);
     if (!parsed_count || *parsed_count < 0) {
         log("Ignoring BLOCKS message with bad block count '" + line + "'");
-        syncing = false;
+        cancelSyncIfPeer(peer->getAddress(), "malformed BLOCKS reply");
         return;
     }
     const int block_count = *parsed_count;
@@ -824,7 +936,7 @@ void P2PNode::handleBlocks(std::shared_ptr<Peer> /*peer*/, const Message& msg) {
             + std::to_string(processed));
     }
 
-    syncing = false;
+    cancelSyncIfPeer(peer->getAddress(), "sync finished");
 }
 
 void P2PNode::handleGetBlockHeight(std::shared_ptr<Peer> peer, const Message& /*msg*/) {
@@ -982,20 +1094,73 @@ std::shared_ptr<Peer> P2PNode::findBestPeerForSync() {
 }
 
 void P2PNode::syncWithPeer(std::shared_ptr<Peer> peer) {
-    if (syncing) {
+    // Check-then-act on `syncing` raced between the sync thread and the
+    // receiver thread, so two syncs could start at once.
+    bool expected = false;
+    if (!syncing.compare_exchange_strong(expected, true)) {
         return;
     }
-    
-    syncing = true;
+
+    const std::string address = peer->getAddress();
+    {
+        std::scoped_lock lock(sync_mutex);
+        sync_peer = address;
+        sync_deadline = nowMs() + config.sync_timeout;
+    }
+
     int64_t our_height = static_cast<int64_t>(blockchain->getChainSize());
     int64_t their_height = peer->getBlockHeight();
-    
-    log("Starting sync with " + peer->getAddress() + 
-        " (our height: " + std::to_string(our_height) + 
+
+    log("Starting sync with " + address +
+        " (our height: " + std::to_string(our_height) +
         ", their height: " + std::to_string(their_height) + ")");
-    
+
     auto request = Message::createGetBlocks(our_height, their_height - 1);
-    peer->send(request);
+    if (!peer->send(request)) {
+        cancelSync("could not send GET_BLOCKS to " + address);
+    }
+}
+
+void P2PNode::cancelSync(const std::string& reason) {
+    {
+        std::scoped_lock lock(sync_mutex);
+        sync_peer.clear();
+        sync_deadline = 0;
+    }
+
+    if (syncing.exchange(false)) {
+        log("Sync cancelled: " + reason);
+    }
+}
+
+void P2PNode::cancelSyncIfPeer(const std::string& peer_address,
+                               const std::string& reason) {
+    {
+        std::scoped_lock lock(sync_mutex);
+        if (sync_peer != peer_address) {
+            return; // an unrelated peer must not clear our outstanding request
+        }
+    }
+
+    cancelSync(reason);
+}
+
+void P2PNode::cancelStalledSync() {
+    if (!syncing.load()) {
+        return;
+    }
+
+    std::string address;
+    {
+        std::scoped_lock lock(sync_mutex);
+        if (sync_deadline == 0 || nowMs() < sync_deadline) {
+            return;
+        }
+        address = sync_peer;
+    }
+
+    cancelSync("no answer from " + address + " within " +
+               std::to_string(config.sync_timeout) + "ms");
 }
 
 void P2PNode::log(const std::string& message) {

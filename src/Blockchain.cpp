@@ -17,6 +17,8 @@ Blockchain::Blockchain(int initial_difficulty, double initial_reward)
 }
 
 std::shared_ptr<Block> Blockchain::createGenesisBlock() {
+    std::scoped_lock lock(chain_mutex);
+
     // The genesis block carries no transactions: a zero-amount marker tx
     // would be rejected by Block::addTransaction's validity check anyway.
     auto genesis = std::make_shared<Block>(0, "0", difficulty);
@@ -26,10 +28,14 @@ std::shared_ptr<Block> Blockchain::createGenesisBlock() {
 }
 
 std::shared_ptr<Block> Blockchain::getLatestBlock() const {
+    std::scoped_lock lock(chain_mutex);
+
     return chain.back();
 }
 
 void Blockchain::addTransaction(std::shared_ptr<Transaction> transaction) {
+    std::scoped_lock lock(chain_mutex);
+
     if (!transaction->isValid()) {
         std::cout << "Invalid transaction rejected!" << std::endl;
         return;
@@ -61,6 +67,8 @@ void Blockchain::addTransaction(std::shared_ptr<Transaction> transaction) {
 }
 
 void Blockchain::minePendingTransactions(const std::string& reward_address) {
+    std::scoped_lock lock(chain_mutex);
+
     if (pending_transactions.empty()) {
         std::cout << "No pending transactions to mine!" << std::endl;
         return;
@@ -106,10 +114,14 @@ void Blockchain::minePendingTransactions(const std::string& reward_address) {
 }
 
 int Blockchain::calculateRequiredDifficulty() const {
+    std::scoped_lock lock(chain_mutex);
+
     return calculateRequiredDifficultyAtHeight(static_cast<int>(chain.size()));
 }
 
 bool Blockchain::validateBlockDifficulty(const std::shared_ptr<Block>& block) const {
+    std::scoped_lock lock(chain_mutex);
+
     int required = calculateRequiredDifficultyAtHeight(block->getIndex());
     int actual = block->getDifficulty();
     
@@ -124,6 +136,8 @@ bool Blockchain::validateBlockDifficulty(const std::shared_ptr<Block>& block) co
 }
 
 double Blockchain::getBalance(const std::string& address) {
+    std::scoped_lock lock(chain_mutex);
+
     double balance = 0.0;
     
     // Calculate balance by going through all transactions in all blocks
@@ -142,6 +156,8 @@ double Blockchain::getBalance(const std::string& address) {
 }
 
 double Blockchain::pendingOutflow(const std::string& address) const {
+    std::scoped_lock lock(chain_mutex);
+
     double outflow = 0.0;
 
     for (const auto& transaction : pending_transactions) {
@@ -154,6 +170,8 @@ double Blockchain::pendingOutflow(const std::string& address) const {
 }
 
 bool Blockchain::isChainValid() const {
+    std::scoped_lock lock(chain_mutex);
+
     if (chain.size() < 1) {
         return false;
     }
@@ -197,6 +215,8 @@ bool Blockchain::isChainValid() const {
 }
 
 bool Blockchain::addBlock(std::shared_ptr<Block> block) {
+    std::scoped_lock lock(chain_mutex);
+
     if (!block) {
         return false;
     }
@@ -287,6 +307,8 @@ bool Blockchain::addBlock(std::shared_ptr<Block> block) {
 }
 
 void Blockchain::printChain() const {
+    std::scoped_lock lock(chain_mutex);
+
     std::cout << "=== BLOCKCHAIN ===" << std::endl;
     std::cout << "Chain length: " << chain.size() << " blocks" << std::endl;
     std::cout << "Difficulty: " << difficulty << std::endl;
@@ -307,6 +329,8 @@ void Blockchain::printChain() const {
 }
 
 bool Blockchain::saveToFile(const std::string& filename) const {
+    std::scoped_lock lock(chain_mutex);
+
     std::ofstream file(filename);
     if (!file.is_open()) {
         std::cout << "Failed to open file for writing: " << filename << std::endl;
@@ -350,6 +374,8 @@ bool Blockchain::saveToFile(const std::string& filename) const {
 }
 
 bool Blockchain::loadFromFile(const std::string& filename) {
+    std::scoped_lock lock(chain_mutex);
+
     std::ifstream file(filename);
     if (!file.is_open()) {
         std::cout << "Failed to open file for reading: " << filename << std::endl;
@@ -468,6 +494,8 @@ bool Blockchain::loadFromFile(const std::string& filename) {
 }
 
 void Blockchain::updateBalances() {
+    std::scoped_lock lock(chain_mutex);
+
     balances.clear();
     
     for (const auto& block : chain) {
@@ -484,6 +512,8 @@ void Blockchain::updateBalances() {
 }
 
 bool Blockchain::transactionExists(const std::shared_ptr<Transaction>& tx) const {
+    std::scoped_lock lock(chain_mutex);
+
     std::string tx_hash = tx->calculateHash();
     
     for (const auto& block : chain) {
@@ -507,6 +537,8 @@ bool Blockchain::transactionExists(const std::shared_ptr<Transaction>& tx) const
 // `height`, replayed from the timing of the blocks below it. Mining
 // (via calculateRequiredDifficulty) and validation use this same rule.
 int Blockchain::calculateRequiredDifficultyAtHeight(int height) const {
+    std::scoped_lock lock(chain_mutex);
+
     if (height < DIFFICULTY_ADJUSTMENT_INTERVAL) {
         return difficulty;
     }

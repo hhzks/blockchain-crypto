@@ -121,6 +121,13 @@ ctest --test-dir build --output-on-failure
   exactly one mining-reward transaction of the expected amount.
 - **Mining.** `mineBlock` searches for a nonce whose block hash satisfies the
   difficulty target; difficulty retargets on a fixed interval.
+- **Threading.** The P2P node runs four threads and calls into the chain from
+  its receiver thread while the CLI drives the same object, so `Blockchain` is
+  internally synchronised: every public method takes a recursive mutex and the
+  container accessors return snapshots. One consequence is that a block
+  arriving mid-mine waits for the mine to finish. The receiver thread polls
+  every peer with a single `select` and buffers partial messages, so a peer
+  that stalls mid-frame costs only itself.
 
 ## Security model & limitations
 

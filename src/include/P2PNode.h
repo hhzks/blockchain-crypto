@@ -49,31 +49,53 @@ enum class PeerState {
     DISCONNECTED
 };
 
+// A Peer is touched by four threads at once: the receiver thread writes the
+// handshake fields, the ping and sync threads poll state and height, and the
+// CLI thread lists peers. peers_mutex only guards the map, not the objects
+// held in it, so every mutable field here carries its own synchronisation:
+// the scalars are atomic, and the two strings are guarded by meta_mutex and
+// only ever handed out as copies.
+// Result of one step of Peer's incremental reader.
+enum class ReceiveStatus {
+    Message,     // a complete message was parsed out of the buffer
+    Incomplete,  // nothing yet; wait for the socket to be readable again
+    Closed       // peer hung up, errored, or violated the framing rules
+};
+
 class Peer {
 private:
-    SocketType socket;
+    const SocketType socket;
+    const std::string ip;
+    const uint16_t port;
+
+    std::atomic<PeerState> state;
+    std::atomic<int64_t> last_seen;
+    std::atomic<int64_t> connected_at;
+    std::atomic<int64_t> block_height;
+
+    mutable std::mutex meta_mutex;
     std::string node_id;
-    std::string ip;
-    uint16_t port;
-    PeerState state;
-    int64_t last_seen;
-    int64_t connected_at;
-    int64_t block_height;
     std::string version;
-    
+
     std::mutex send_mutex;
     std::queue<Message> outgoing_queue;
-    
+
+    // Framing state for the incremental reader. Only the receiver thread
+    // touches it, so unlike the fields above it needs no synchronisation.
+    std::vector<uint8_t> recv_buffer;
+
+    ReceiveStatus extractMessage(Message& msg);
+
 public:
     Peer(SocketType sock, const std::string& peer_ip, uint16_t peer_port)
         : socket(sock), ip(peer_ip), port(peer_port), state(PeerState::CONNECTING),
           last_seen(0), connected_at(0), block_height(0) {
-        connected_at = std::chrono::duration_cast<std::chrono::milliseconds>(
+        const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()
         ).count();
-        last_seen = connected_at;
+        connected_at = now;
+        last_seen = now;
     }
-    
     ~Peer() {
         if (socket != INVALID_SOCK) {
             closesocket(socket);
@@ -81,34 +103,56 @@ public:
     }
     
     SocketType getSocket() const { return socket; }
-    const std::string& getNodeId() const { return node_id; }
-    const std::string& getIp() const { return ip; }
-    uint16_t getPort() const { return port; }
-    PeerState getState() const { return state; }
-    int64_t getLastSeen() const { return last_seen; }
-    int64_t getBlockHeight() const { return block_height; }
-    const std::string& getVersion() const { return version; }
-    
-    void setNodeId(const std::string& id) { node_id = id; }
-    void setState(PeerState s) { state = s; }
-    void setBlockHeight(int64_t h) { block_height = h; }
-    void setVersion(const std::string& v) { version = v; }
-    void updateLastSeen() {
-        last_seen = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()
-        ).count();
+    // By value: a reference would alias a member the receiver thread reassigns.
+    std::string getNodeId() const {
+        std::scoped_lock lock(meta_mutex);
+        return node_id;
     }
-    
+    const std::string& getIp() const { return ip; }  // const after construction
+    uint16_t getPort() const { return port; }
+    PeerState getState() const { return state.load(); }
+    int64_t getLastSeen() const { return last_seen.load(); }
+    int64_t getConnectedAt() const { return connected_at.load(); }
+    int64_t getBlockHeight() const { return block_height.load(); }
+    std::string getVersion() const {
+        std::scoped_lock lock(meta_mutex);
+        return version;
+    }
+
+    void setNodeId(const std::string& id) {
+        std::scoped_lock lock(meta_mutex);
+        node_id = id;
+    }
+    void setState(PeerState s) { state.store(s); }
+    void setBlockHeight(int64_t h) { block_height.store(h); }
+    void setVersion(const std::string& v) {
+        std::scoped_lock lock(meta_mutex);
+        version = v;
+    }
+    void updateLastSeen() {
+        last_seen.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count());
+    }
+
     std::string getAddress() const {
         return ip + ":" + std::to_string(port);
     }
-    
+
     PeerInfo toPeerInfo() const {
-        return PeerInfo{ip, port, node_id, last_seen};
+        return PeerInfo{ip, port, getNodeId(), last_seen.load()};
     }
-    
+
     bool send(const Message& msg);
-    bool receive(Message& msg);
+
+    // One step of the incremental reader, performing at most one recv() and
+    // only when select() has reported the socket readable. A peer that sends a
+    // header and then stalls parks in its own buffer instead of halting every
+    // other peer behind a blocking read of the body.
+    ReceiveStatus pollReceive(Message& msg);
+    // Drains a message that arrived in the same read as the previous one,
+    // without touching the socket. Never blocks.
+    ReceiveStatus nextBufferedMessage(Message& msg);
 };
 
 struct P2PCallbacks {
@@ -127,6 +171,9 @@ struct P2PConfig {
     int64_t ping_interval = 30000;
     int64_t peer_timeout = 90000;
     int64_t sync_interval = 60000;
+    // How long an outstanding GET_BLOCKS may go unanswered before the sync is
+    // abandoned and another peer can be tried.
+    int64_t sync_timeout = 30000;
     bool enable_logging = true;
     std::vector<std::string> seed_nodes;
 };
@@ -155,6 +202,13 @@ private:
     std::jthread ping_thread;
     std::jthread sync_thread;
     
+    // An outstanding GET_BLOCKS: which peer it went to and when we give up on
+    // it. `syncing` alone was a one-way latch -- nothing cleared it if the
+    // peer never answered, errored, or vanished.
+    mutable std::mutex sync_mutex;
+    std::string sync_peer;
+    int64_t sync_deadline = 0;
+
     std::condition_variable stop_condition;
     mutable std::mutex stop_mutex;
     
@@ -195,7 +249,12 @@ private:
     void pingPeers();
     void syncPeriodically();
     
+    void cancelSync(const std::string& reason);
+    void cancelSyncIfPeer(const std::string& peer_address, const std::string& reason);
+    void cancelStalledSync();
+
     void handleMessage(std::shared_ptr<Peer> peer, const Message& msg);
+    void handleError(std::shared_ptr<Peer> peer, const Message& msg);
     void handleHandshake(std::shared_ptr<Peer> peer, const Message& msg);
     void handlePing(std::shared_ptr<Peer> peer, const Message& msg);
     void handlePong(std::shared_ptr<Peer> peer, const Message& msg);
