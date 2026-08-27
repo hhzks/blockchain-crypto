@@ -23,7 +23,17 @@ public:
     Block(int idx, const std::string& prev_hash, int block_difficulty,
           long long block_timestamp);
 
-    void addTransaction(std::shared_ptr<Transaction> transaction);
+    // Returns true if the transaction was appended, false (with the reason
+    // on stdout) if it was null or failed validation, so callers can act on a
+    // rejection instead of silently producing a smaller block than they asked
+    // for.
+    bool addTransaction(std::shared_ptr<Transaction> transaction);
+    // Restore a transaction list wholesale, without per-transaction
+    // validation. Deserialisation paths use this so a block is rebuilt exactly
+    // as it was sent and *then* validated; validating during reconstruction
+    // reshapes the block and turns a bad transaction into a misleading merkle
+    // mismatch.
+    void setTransactions(std::vector<std::shared_ptr<Transaction>> txs);
     std::string calculateHash() const;
     void mineBlock();
     void calculateMerkleRoot();

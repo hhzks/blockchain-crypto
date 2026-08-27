@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
+#include <fstream>
+#include <string>
 #include "Blockchain.h"
 #include "utils.h"
 #include "fixtures.h"
@@ -216,4 +218,136 @@ TEST_CASE("addBlock rejects a block with an inflated system reward amount",
 
     REQUIRE_FALSE(f.chain.addBlock(block));
     REQUIRE(f.chain.getChainSize() == 1);
+}
+
+TEST_CASE("minePendingTransactions refuses to mine an unrewarded block",
+          "[unit][blockchain]") {
+    // "system" -> "system" fails Transaction::isValid (sender == receiver), so
+    // the reward transaction is rejected. Mining must abort rather than commit
+    // a block that silently carries no reward.
+    Blockchain bc(2, 50.0);
+    bc.addTransaction(std::make_shared<Transaction>("system", "alice", 10.0));
+    size_t height_before = bc.getChainSize();
+
+    bc.minePendingTransactions("system");
+
+    REQUIRE(bc.getChainSize() == height_before);
+    REQUIRE(bc.getPendingTransactions().size() == 1);
+}
+
+TEST_CASE("loadFromFile rejects a malformed file and keeps the live chain",
+          "[unit][blockchain]") {
+    MinedChainFixture f;
+    f.seedFunds("alice", 100.0, "miner_1");
+    const size_t height = f.chain.getChainSize();
+    const std::string tip = f.chain.getLatestBlock()->getHash();
+
+    TempDir tmp;
+    const std::string path = tmp.file("junk.dat");
+    {
+        std::ofstream out(path);
+        out << "not a chain at all" << std::endl;
+    }
+
+    REQUIRE_FALSE(f.chain.loadFromFile(path));
+    // A failed load must not destroy what the node already had.
+    REQUIRE(f.chain.getChainSize() == height);
+    REQUIRE(f.chain.getLatestBlock()->getHash() == tip);
+}
+
+TEST_CASE("loadFromFile rejects a truncated chain file", "[unit][blockchain]") {
+    MinedChainFixture f;
+    f.seedFunds("alice", 100.0, "miner_1");
+
+    TempDir tmp;
+    const std::string full = tmp.file("full.dat");
+    REQUIRE(f.chain.saveToFile(full));
+
+    std::string contents;
+    {
+        std::ifstream in(full);
+        contents.assign(std::istreambuf_iterator<char>(in),
+                        std::istreambuf_iterator<char>());
+    }
+    const std::string cut = tmp.file("cut.dat");
+    {
+        std::ofstream out(cut);
+        out << contents.substr(0, contents.size() / 2);
+    }
+
+    Blockchain loaded(2, 50.0);
+    REQUIRE_FALSE(loaded.loadFromFile(cut));
+}
+
+TEST_CASE("loadFromFile rejects a chain whose blocks do not validate",
+          "[unit][blockchain]") {
+    MinedChainFixture f;
+    f.seedFunds("alice", 100.0, "miner_1");
+
+    TempDir tmp;
+    const std::string path = tmp.file("tampered.dat");
+    REQUIRE(f.chain.saveToFile(path));
+
+    std::string contents;
+    {
+        std::ifstream in(path);
+        contents.assign(std::istreambuf_iterator<char>(in),
+                        std::istreambuf_iterator<char>());
+    }
+    // Corrupt the tip block's stored hash: every field still parses, so only
+    // real validation catches it.
+    const std::string tip_hash = f.chain.getLatestBlock()->getHash();
+    const auto pos = contents.find(tip_hash);
+    REQUIRE(pos != std::string::npos);
+    contents.replace(pos, 1, contents[pos] == 'a' ? "b" : "a");
+    {
+        std::ofstream out(path);
+        out << contents;
+    }
+
+    Blockchain loaded(2, 50.0);
+    REQUIRE_FALSE(loaded.loadFromFile(path));
+}
+
+TEST_CASE("addTransaction counts pending spends against the sender's balance",
+          "[unit][blockchain]") {
+    MinedChainFixture f;
+    KeyPairFixture alice;
+    f.seedFunds(alice.address(), 100.0, "miner_1");
+
+    // Two 80-coin sends from a 100-coin balance: the second is only affordable
+    // if the first one in the pool is ignored.
+    REQUIRE(f.chain.getBalance(alice.address()) == 100.0);
+    f.chain.addTransaction(alice.signedTx("bob", 80.0));
+    f.chain.addTransaction(alice.signedTx("carol", 80.0));
+
+    REQUIRE(f.chain.getPendingTransactions().size() == 1);
+
+    f.chain.minePendingTransactions("miner_1");
+    REQUIRE(f.chain.getBalance(alice.address()) == 20.0);
+}
+
+TEST_CASE("addBlock rejects a block replaying an already-mined transaction",
+          "[unit][blockchain]") {
+    MinedChainFixture f;
+    KeyPairFixture alice;
+    f.seedFunds(alice.address(), 100.0, "miner_1");
+
+    auto tx = alice.signedTx("bob", 25.0);
+    f.chain.addTransaction(tx);
+    f.chain.minePendingTransactions("miner_1");
+    const double bob_balance = f.chain.getBalance("bob");
+
+    // The signature still verifies and the proof of work is real, so only a
+    // duplicate check keeps the peer from crediting bob twice.
+    auto tip = f.chain.getLatestBlock();
+    auto replay = std::make_shared<Block>(
+        static_cast<int>(f.chain.getChainSize()), tip->getHash(),
+        f.chain.calculateRequiredDifficulty());
+    replay->addTransaction(tx);
+    replay->addTransaction(std::make_shared<Transaction>("system", "miner_2", 50.0));
+    replay->mineBlock();
+
+    REQUIRE_FALSE(f.chain.addBlock(replay));
+    REQUIRE(f.chain.getBalance("bob") == bob_balance);
 }

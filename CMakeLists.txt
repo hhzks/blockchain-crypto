@@ -43,7 +43,8 @@ add_library(blockchain_core STATIC ${CORE_SOURCES} ${CORE_HEADERS})
 target_include_directories(blockchain_core PUBLIC src src/include)
 
 if(WIN32)
-    target_link_libraries(blockchain_core PUBLIC ws2_32)
+    # bcrypt supplies BCryptGenRandom, the OS entropy source for key material.
+    target_link_libraries(blockchain_core PUBLIC ws2_32 bcrypt)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

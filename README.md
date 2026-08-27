@@ -130,9 +130,10 @@ This is a learning project. Known, intentional gaps:
   constant-time**.
 - Balances are tracked by address string and recomputed from chain history.
 - `addBlock()` validates structure, proof-of-work, difficulty, per-transaction
-  signatures, and the mining-reward invariant, but does **not** check that
-  non-reward senders in a received block have sufficient balance (no
-  double-spend/overspend check for foreign blocks). `isChainValid()` shares this
-  gap.
+  signatures, the mining-reward invariant, and rejects a block that replays a
+  transaction already in the chain, but it does **not** check that non-reward
+  senders in a received block have sufficient balance (no overspend check for
+  foreign blocks). `isChainValid()` shares this gap. The local mempool does
+  check balances, counting transactions already pending.
 - The persisted chain-file format includes a per-transaction public key; files
   written by older builds will not load.

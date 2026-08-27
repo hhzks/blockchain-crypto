@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <format>
 #include "Block.h"
+#include "utils.h"
 #include "Transaction.h"
 
 namespace p2p {
@@ -87,6 +88,8 @@ struct PeerInfo {
         return ip + ":" + std::to_string(port) + ":" + node_id + ":" + std::to_string(last_seen);
     }
     
+    // Throws std::invalid_argument on malformed input; callers parsing
+    // peer-supplied data must catch it (see P2PNode::handlePeers).
     static PeerInfo deserialize(const std::string& data) {
         PeerInfo info;
         std::istringstream iss(data);
@@ -94,10 +97,19 @@ struct PeerInfo {
         
         std::getline(iss, info.ip, ':');
         std::getline(iss, token, ':');
-        info.port = static_cast<uint16_t>(std::stoi(token));
+        auto port = utils::parseInt(token);
+        if (!port || *port <= 0 || *port > 65535) {
+            throw std::invalid_argument("PeerInfo: invalid port '" + token + "'");
+        }
+        info.port = static_cast<uint16_t>(*port);
+
         std::getline(iss, info.node_id, ':');
         std::getline(iss, token, ':');
-        info.last_seen = std::stoll(token);
+        auto last_seen = utils::parseInt64(token);
+        if (!last_seen) {
+            throw std::invalid_argument("PeerInfo: invalid last_seen '" + token + "'");
+        }
+        info.last_seen = *last_seen;
         
         return info;
     }
@@ -346,6 +358,9 @@ public:
 
         auto block = std::make_shared<Block>(index, prev_hash, difficulty, timestamp);
 
+        std::vector<std::shared_ptr<Transaction>> txs;
+        txs.reserve(tx_count);
+
         for (size_t i = 0; i < tx_count; ++i) {
             std::string tx_data;
             std::getline(iss, tx_data, '|');
@@ -365,9 +380,12 @@ public:
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
                                                     tx_timestamp, sig);
             tx->setSenderPublicKey(pubkey);
-            block->addTransaction(tx);
+            txs.push_back(tx);
         }
 
+        // Rebuild the peer's block exactly as sent; Block::isValid() decides
+        // whether it is acceptable.
+        block->setTransactions(std::move(txs));
         block->setMinedState(nonce, hash);
         return block;
     }

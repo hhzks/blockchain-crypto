@@ -109,6 +109,10 @@ std::optional<int> parseInt(std::string_view text) {
     return parseWhole<int>(text);
 }
 
+std::optional<std::int64_t> parseInt64(std::string_view text) {
+    return parseWhole<std::int64_t>(text);
+}
+
 std::optional<double> parseDouble(std::string_view text) {
     const auto value = parseWhole<double>(text);
     // from_chars accepts "nan" and "inf"; a monetary amount must be neither.

@@ -29,6 +29,8 @@ public:
     void addTransaction(std::shared_ptr<Transaction> transaction);
     void minePendingTransactions(const std::string& reward_address);
     double getBalance(const std::string& address);
+    // Total already queued for spending by `address` in the pending pool.
+    double pendingOutflow(const std::string& address) const;
     int calculateRequiredDifficulty() const;
     bool validateBlockDifficulty(const std::shared_ptr<Block>& block) const;
     bool isChainValid() const;

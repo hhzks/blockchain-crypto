@@ -1,4 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
+#include <cstdint>
+#include <limits>
 #include "utils.h"
 #include "vectors.h"
 
@@ -113,4 +115,20 @@ TEST_CASE("parseDouble rejects junk and non-finite values", "[unit][utils]") {
     REQUIRE_FALSE(utils::parseDouble("nan").has_value());
     REQUIRE_FALSE(utils::parseDouble("inf").has_value());
     REQUIRE_FALSE(utils::parseDouble("-inf").has_value());
+}
+
+TEST_CASE("parseInt64 accepts the full 64-bit range", "[unit][utils]") {
+    REQUIRE(utils::parseInt64("0") == 0);
+    REQUIRE(utils::parseInt64("-9223372036854775808") ==
+            std::numeric_limits<int64_t>::min());
+    REQUIRE(utils::parseInt64("9223372036854775807") ==
+            std::numeric_limits<int64_t>::max());
+    REQUIRE(utils::parseInt64(" 42 ") == 42);
+}
+
+TEST_CASE("parseInt64 rejects junk and out-of-range values", "[unit][utils]") {
+    REQUIRE_FALSE(utils::parseInt64("abc").has_value());
+    REQUIRE_FALSE(utils::parseInt64("").has_value());
+    REQUIRE_FALSE(utils::parseInt64("12x").has_value());
+    REQUIRE_FALSE(utils::parseInt64("9223372036854775808").has_value());
 }

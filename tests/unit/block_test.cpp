@@ -66,3 +66,29 @@ TEST_CASE("isMined agrees with checkProofOfWork", "[unit][block]") {
     b.mineBlock();
     REQUIRE(b.isMined(0));
 }
+
+TEST_CASE("addTransaction reports whether the transaction was accepted",
+          "[unit][block]") {
+    Block b(0, "0", 2);
+    REQUIRE(b.addTransaction(std::make_shared<Transaction>("system", "alice", 10.0)));
+
+    // Empty sender: rejected by Transaction::isValid.
+    REQUIRE_FALSE(b.addTransaction(std::make_shared<Transaction>("", "alice", 10.0)));
+    REQUIRE_FALSE(b.addTransaction(nullptr));
+    REQUIRE(b.getTransactions().size() == 1);
+}
+
+TEST_CASE("setTransactions restores a transaction list verbatim",
+          "[unit][block]") {
+    // A block reconstructed from the wire or from disk must keep every
+    // transaction it was sent, invalid ones included, so that validation
+    // reports the real defect instead of a merkle mismatch caused by the
+    // reconstruction itself.
+    auto good = std::make_shared<Transaction>("system", "alice", 10.0);
+    auto bad = std::make_shared<Transaction>("bob", "carol", 5.0);  // unsigned
+
+    Block b(0, "0", 2);
+    b.setTransactions({good, bad});
+    REQUIRE(b.getTransactions().size() == 2);
+    REQUIRE_FALSE(b.isValid());
+}
