@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -57,6 +58,13 @@ namespace utils {
      * @return The value, or std::nullopt if the text is not entirely one in-range integer
      */
     std::optional<int> parseInt(std::string_view text);
+
+    /**
+     * Parse a whole string as a decimal 64-bit integer, allowing surrounding whitespace.
+     * @param text Text to parse
+     * @return The value, or std::nullopt if the text is not entirely one in-range integer
+     */
+    std::optional<std::int64_t> parseInt64(std::string_view text);
 
     /**
      * Parse a whole string as a finite decimal double, allowing surrounding whitespace.

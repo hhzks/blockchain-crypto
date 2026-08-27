@@ -498,7 +498,16 @@ void P2PNode::receiveMessages() {
             if (result > 0 && FD_ISSET(peer->getSocket(), &readSet)) {
                 Message msg;
                 if (peer->receive(msg)) {
-                    handleMessage(peer, msg);
+                    // Backstop: an exception escaping a handler would leave
+                    // this jthread and terminate the process. One bad peer
+                    // must cost that peer, not the node.
+                    try {
+                        handleMessage(peer, msg);
+                    } catch (const std::exception& e) {
+                        log("Dropping peer " + addr + " after handler error: " +
+                            std::string(e.what()));
+                        removePeer(addr);
+                    }
                 } else {
                     // Connection lost
                     removePeer(addr);
@@ -614,13 +623,24 @@ void P2PNode::handleMessage(std::shared_ptr<Peer> peer, const Message& msg) {
 void P2PNode::handleHandshake(std::shared_ptr<Peer> peer, const Message& msg) {
     std::istringstream iss(msg.getPayload());
     std::string peer_node_id, version;
-    int64_t peer_height;
+    int64_t peer_height = 0;
 
     std::getline(iss, peer_node_id, '|');
     std::string token;
     std::getline(iss, token, '|'); // peer_port — unused; connection is already established
     std::getline(iss, token, '|');
-    peer_height = std::stoll(token);
+
+    // Peer-supplied text: std::stoll threw out of the receiver thread on
+    // anything non-numeric, and a short payload leaves the token empty.
+    auto parsed_height = utils::parseInt64(token);
+    if (!parsed_height || *parsed_height < 0) {
+        log("Rejecting handshake from " + peer->getAddress() +
+            ": bad block height '" + token + "'");
+        removePeer(peer->getAddress());
+        return;
+    }
+    peer_height = *parsed_height;
+
     std::getline(iss, version, '|');
     
     if (peer_node_id == node_id) {
@@ -716,9 +736,17 @@ void P2PNode::handleGetBlocks(std::shared_ptr<Peer> peer, const Message& msg) {
     std::istringstream iss(msg.getPayload());
     std::string token;
     std::getline(iss, token, '|');
-    int64_t start_height = std::stoll(token);
+    auto parsed_start = utils::parseInt64(token);
     std::getline(iss, token, '|');
-    int64_t end_height = std::stoll(token);
+    auto parsed_end = utils::parseInt64(token);
+
+    if (!parsed_start || !parsed_end) {
+        peer->send(Message::createError("Malformed block range"));
+        return;
+    }
+
+    int64_t start_height = *parsed_start;
+    int64_t end_height = *parsed_end;
     
     const auto& chain = blockchain->getChain();
     
@@ -730,6 +758,11 @@ void P2PNode::handleGetBlocks(std::shared_ptr<Peer> peer, const Message& msg) {
     
     if (end_height < 0 || end_height >= static_cast<int64_t>(chain.size())) {
         end_height = static_cast<int64_t>(chain.size()) - 1;
+    }
+
+    if (end_height < start_height) {
+        peer->send(Message::createError("Invalid block range"));
+        return;
     }
     
     std::ostringstream oss;
@@ -748,7 +781,13 @@ void P2PNode::handleBlocks(std::shared_ptr<Peer> /*peer*/, const Message& msg) {
     std::string line;
     
     std::getline(iss, line, '\n');
-    int block_count = std::stoi(line);
+    auto parsed_count = utils::parseInt(line);
+    if (!parsed_count || *parsed_count < 0) {
+        log("Ignoring BLOCKS message with bad block count '" + line + "'");
+        syncing = false;
+        return;
+    }
+    const int block_count = *parsed_count;
     
     log("Received " + std::to_string(block_count) + " blocks");
     
@@ -794,7 +833,14 @@ void P2PNode::handleGetBlockHeight(std::shared_ptr<Peer> peer, const Message& /*
 }
 
 void P2PNode::handleBlockHeight(std::shared_ptr<Peer> peer, const Message& msg) {
-    int64_t height = std::stoll(msg.getPayload());
+    auto parsed = utils::parseInt64(msg.getPayload());
+    if (!parsed || *parsed < 0) {
+        log("Ignoring BLOCK_HEIGHT '" + msg.getPayload() + "' from " +
+            peer->getAddress());
+        return;
+    }
+
+    const int64_t height = *parsed;
     peer->setBlockHeight(height);
     
     if (height > static_cast<int64_t>(blockchain->getChainSize())) {
@@ -908,7 +954,12 @@ void P2PNode::connectToSeedNodes() {
         if (pos == std::string::npos) continue;
         
         std::string ip = seed.substr(0, pos);
-        uint16_t port = static_cast<uint16_t>(std::stoi(seed.substr(pos + 1)));
+        auto parsed_port = utils::parseInt(seed.substr(pos + 1));
+        if (!parsed_port || *parsed_port <= 0 || *parsed_port > 65535) {
+            log("Skipping seed node with invalid port: " + seed);
+            continue;
+        }
+        const uint16_t port = static_cast<uint16_t>(*parsed_port);
         
         connectToPeer(ip, port);
     }
