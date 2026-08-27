@@ -65,6 +65,34 @@ bool sendRawMessage(uint16_t port, const p2p::Message& msg) {
     return ok;
 }
 
+// Opens a raw client connection to `port`, left open for the caller to close.
+SocketType connectRaw(uint16_t port) {
+    SocketType sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == INVALID_SOCK) return INVALID_SOCK;
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+    if (connect(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        closesocket(sock);
+        return INVALID_SOCK;
+    }
+    return sock;
+}
+
+bool sendAll(SocketType sock, const uint8_t* data, size_t len) {
+    size_t sent = 0;
+    while (sent < len) {
+        int n = send(sock, reinterpret_cast<const char*>(data + sent),
+                     static_cast<int>(len - sent), 0);
+        if (n <= 0) return false;
+        sent += static_cast<size_t>(n);
+    }
+    return true;
+}
+
 } // namespace
 
 TEST_CASE("A malformed peer message drops the peer, not the node",
@@ -111,4 +139,73 @@ TEST_CASE("A malformed peer message drops the peer, not the node",
 
     good_peer.stop();
     node.stop();
+}
+
+TEST_CASE("A stalled peer does not block messages from other peers",
+          "[integration][p2p]") {
+    Blockchain chain{2, 50.0};
+    p2p::P2PConfig cfg;
+    cfg.listen_port = 0;
+    cfg.enable_logging = false;
+    p2p::P2PNode node(&chain, cfg);
+    REQUIRE(node.start());
+
+    const uint16_t port = node.getActualListenPort();
+    REQUIRE(port != 0);
+
+    // Peer A announces a message and then goes silent. A blocking read of the
+    // body halts every other peer's traffic until the 30s socket timeout.
+    SocketType staller = connectRaw(port);
+    REQUIRE(staller != INVALID_SOCK);
+    auto stalled_frame = p2p::Message(p2p::MessageType::PING, "hello", "staller").serialize();
+    REQUIRE(stalled_frame.size() > p2p::Message::HEADER_SIZE);
+    REQUIRE(sendAll(staller, stalled_frame.data(), p2p::Message::HEADER_SIZE));
+
+    // Give the receiver thread time to pick up the header and start waiting
+    // on the body it will never get.
+    std::this_thread::sleep_for(500ms);
+
+    // Peer B sends a complete PING and must get its PONG promptly.
+    SocketType healthy = connectRaw(port);
+    REQUIRE(healthy != INVALID_SOCK);
+
+#ifdef _WIN32
+    DWORD recv_timeout = 4000;
+    setsockopt(healthy, SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<const char*>(&recv_timeout), sizeof(recv_timeout));
+#else
+    struct timeval recv_timeout {4, 0};
+    setsockopt(healthy, SOL_SOCKET, SO_RCVTIMEO, &recv_timeout, sizeof(recv_timeout));
+#endif
+
+    auto ping = p2p::Message(p2p::MessageType::PING, "hi", "healthy").serialize();
+    REQUIRE(sendAll(healthy, ping.data(), ping.size()));
+
+    uint8_t reply[p2p::Message::HEADER_SIZE]{};
+    int received = recv(healthy, reinterpret_cast<char*>(reply), sizeof reply, 0);
+
+    closesocket(healthy);
+    closesocket(staller);
+    node.stop();
+
+    REQUIRE(received > 0);
+}
+
+TEST_CASE("stop() returns promptly instead of sleeping out an interval",
+          "[integration][p2p]") {
+    Blockchain chain{2, 50.0};
+    p2p::P2PConfig cfg;
+    cfg.listen_port = 0;
+    cfg.enable_logging = false;
+    p2p::P2PNode node(&chain, cfg);
+    REQUIRE(node.start());
+    std::this_thread::sleep_for(200ms);
+
+    const auto begin = std::chrono::steady_clock::now();
+    node.stop();
+    const auto elapsed = std::chrono::steady_clock::now() - begin;
+
+    // ping_interval is 30s and sync_interval 60s by default; a missed wakeup
+    // makes stop() wait one of them out.
+    REQUIRE(elapsed < 2s);
 }

@@ -55,6 +55,13 @@ enum class PeerState {
 // held in it, so every mutable field here carries its own synchronisation:
 // the scalars are atomic, and the two strings are guarded by meta_mutex and
 // only ever handed out as copies.
+// Result of one step of Peer's incremental reader.
+enum class ReceiveStatus {
+    Message,     // a complete message was parsed out of the buffer
+    Incomplete,  // nothing yet; wait for the socket to be readable again
+    Closed       // peer hung up, errored, or violated the framing rules
+};
+
 class Peer {
 private:
     const SocketType socket;
@@ -72,6 +79,12 @@ private:
 
     std::mutex send_mutex;
     std::queue<Message> outgoing_queue;
+
+    // Framing state for the incremental reader. Only the receiver thread
+    // touches it, so unlike the fields above it needs no synchronisation.
+    std::vector<uint8_t> recv_buffer;
+
+    ReceiveStatus extractMessage(Message& msg);
 
 public:
     Peer(SocketType sock, const std::string& peer_ip, uint16_t peer_port)
@@ -131,7 +144,15 @@ public:
     }
 
     bool send(const Message& msg);
-    bool receive(Message& msg);
+
+    // One step of the incremental reader, performing at most one recv() and
+    // only when select() has reported the socket readable. A peer that sends a
+    // header and then stalls parks in its own buffer instead of halting every
+    // other peer behind a blocking read of the body.
+    ReceiveStatus pollReceive(Message& msg);
+    // Drains a message that arrived in the same read as the previous one,
+    // without touching the socket. Never blocks.
+    ReceiveStatus nextBufferedMessage(Message& msg);
 };
 
 struct P2PCallbacks {
