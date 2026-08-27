@@ -263,14 +263,18 @@ bool P2PNode::connectToPeer(const std::string& ip, uint16_t port) {
     }
     
     std::string address = ip + ":" + std::to_string(port);
+
+    // Matches an inbound peer too: the map keys those by their ephemeral
+    // source port, which could never equal the address we would dial.
+    const bool already_connected = hasPeerAt(address);
+    
+    if (already_connected) {
+        log("Already connected to " + address);
+        return true;
+    }
     
     {
         std::scoped_lock lock(peers_mutex);
-        if (peers.contains(address)) {
-            log("Already connected to " + address);
-            return true;
-        }
-        
         if (peers.size() >= config.max_peers) {
             log("Max peers reached, cannot connect to " + address);
             return false;
@@ -314,9 +318,10 @@ bool P2PNode::connectToPeer(const std::string& ip, uint16_t port) {
     }
     
     auto peer = std::make_shared<Peer>(sock, ip, port);
+    peer->setListenPort(port); // we dialled it, so this is its listening port
     peer->setState(PeerState::HANDSHAKING);
     
-    auto handshake = Message::createHandshake(node_id, config.listen_port, 
+    auto handshake = Message::createHandshake(node_id, getActualListenPort(), 
                                                static_cast<int64_t>(blockchain->getChainSize()));
     if (!peer->send(handshake)) {
         log("Failed to send handshake to " + address);
@@ -732,7 +737,19 @@ void P2PNode::handleHandshake(std::shared_ptr<Peer> peer, const Message& msg) {
 
     std::getline(iss, peer_node_id, '|');
     std::string token;
-    std::getline(iss, token, '|'); // peer_port — unused; connection is already established
+    std::getline(iss, token, '|');
+
+    // The port the peer listens on. For an inbound connection this is the only
+    // dialable address we ever learn: the socket's source port is ephemeral,
+    // so keying identity or gossip on it produces addresses nobody can reach.
+    auto advertised_port = utils::parseInt(token);
+    if (!advertised_port || *advertised_port <= 0 || *advertised_port > 65535) {
+        log("Rejecting handshake from " + peer->getAddress() +
+            ": invalid listen port '" + token + "'");
+        removePeer(peer->getAddress());
+        return;
+    }
+
     std::getline(iss, token, '|');
 
     // Peer-supplied text: std::stoll threw out of the receiver thread on
@@ -753,14 +770,24 @@ void P2PNode::handleHandshake(std::shared_ptr<Peer> peer, const Message& msg) {
         removePeer(peer->getAddress());
         return;
     }
-    
+
+    // Simultaneous dials, or our own address arriving back through PEERS
+    // gossip, used to leave several live connections to one node, each
+    // counted separately against max_peers.
+    if (hasPeerWithNodeId(peer_node_id, peer.get())) {
+        log("Rejecting duplicate connection from node " + peer_node_id);
+        removePeer(peer->getAddress());
+        return;
+    }
+
+    peer->setListenPort(static_cast<uint16_t>(*advertised_port));
     peer->setNodeId(peer_node_id);
     peer->setBlockHeight(peer_height);
     peer->setVersion(version);
     peer->setState(PeerState::CONNECTED);
     
     if (msg.getType() == MessageType::HANDSHAKE) {
-        auto ack = Message::createHandshake(node_id, config.listen_port,
+        auto ack = Message::createHandshake(node_id, getActualListenPort(),
                                             static_cast<int64_t>(blockchain->getChainSize()));
         ack.setType(MessageType::HANDSHAKE_ACK);
         peer->send(ack);
@@ -829,12 +856,7 @@ void P2PNode::handlePeers(std::shared_ptr<Peer> /*peer*/, const Message& msg) {
             }
             
             std::string address = info.ip + ":" + std::to_string(info.port);
-            bool already_connected = false;
-            
-            {
-                std::scoped_lock lock(peers_mutex);
-                already_connected = peers.contains(address);
-            }
+            const bool already_connected = hasPeerAt(address);
             
             if (!already_connected && getPeerCount() < config.max_peers) {
                 connectToPeer(info.ip, info.port);
@@ -1119,6 +1141,35 @@ void P2PNode::syncWithPeer(std::shared_ptr<Peer> peer) {
     if (!peer->send(request)) {
         cancelSync("could not send GET_BLOCKS to " + address);
     }
+}
+
+bool P2PNode::hasPeerAt(const std::string& advertised_address) const {
+    std::scoped_lock lock(peers_mutex);
+
+    for (const auto& [addr, peer] : peers) {
+        if (peer->getAdvertisedAddress() == advertised_address) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool P2PNode::hasPeerWithNodeId(const std::string& peer_node_id,
+                                const Peer* except) const {
+    if (peer_node_id.empty()) {
+        return false;
+    }
+
+    std::scoped_lock lock(peers_mutex);
+
+    for (const auto& [addr, peer] : peers) {
+        if (peer.get() != except && peer->getNodeId() == peer_node_id) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void P2PNode::cancelSync(const std::string& reason) {

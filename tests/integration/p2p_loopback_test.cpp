@@ -106,11 +106,17 @@ bool waitUntil(Pred pred, std::chrono::milliseconds timeout) {
 
 // Handshakes as a peer claiming `height` blocks, which makes the node start
 // syncing from us.
-bool sendHandshake(SocketType sock, const std::string& node_id, int64_t height) {
+bool sendHandshakeAdvertising(SocketType sock, const std::string& node_id,
+                             uint16_t listen_port, int64_t height) {
     auto frame = p2p::Message(p2p::MessageType::HANDSHAKE,
-                              node_id + "|8333|" + std::to_string(height) + "|1.0.0",
+                              node_id + "|" + std::to_string(listen_port) + "|" +
+                              std::to_string(height) + "|1.0.0",
                               node_id).serialize();
     return sendAll(sock, frame.data(), frame.size());
+}
+
+bool sendHandshake(SocketType sock, const std::string& node_id, int64_t height) {
+    return sendHandshakeAdvertising(sock, node_id, 8333, height);
 }
 
 } // namespace
@@ -307,4 +313,82 @@ TEST_CASE("an ERROR reply cancels the in-flight sync", "[integration][p2p]") {
 
     REQUIRE(started);
     REQUIRE(cleared);
+}
+
+TEST_CASE("a peer is reported by its advertised listen port",
+          "[integration][p2p]") {
+    Blockchain chain{2, 50.0};
+    p2p::P2PConfig cfg;
+    cfg.listen_port = 0;
+    cfg.enable_logging = false;
+    p2p::P2PNode node(&chain, cfg);
+    REQUIRE(node.start());
+
+    SocketType client = connectRaw(node.getActualListenPort());
+    REQUIRE(client != INVALID_SOCK);
+    REQUIRE(sendHandshakeAdvertising(client, "advertiser", 8444, 1));
+
+    const bool connected = waitUntil(
+        [&] { return !node.getConnectedPeers().empty(); }, 3s);
+    auto listed = node.getConnectedPeers();
+
+    closesocket(client);
+    node.stop();
+
+    REQUIRE(connected);
+    REQUIRE(listed.size() == 1);
+    // The socket's source port is ephemeral and not listening; gossiping it
+    // hands other nodes an address they cannot dial.
+    REQUIRE(listed[0].port == 8444);
+}
+
+TEST_CASE("a second connection claiming a connected peer's node id is dropped",
+          "[integration][p2p]") {
+    Blockchain chain{2, 50.0};
+    p2p::P2PConfig cfg;
+    cfg.listen_port = 0;
+    cfg.enable_logging = false;
+    p2p::P2PNode node(&chain, cfg);
+    REQUIRE(node.start());
+    const uint16_t port = node.getActualListenPort();
+
+    SocketType first = connectRaw(port);
+    REQUIRE(first != INVALID_SOCK);
+    REQUIRE(sendHandshakeAdvertising(first, "twin", 8555, 1));
+    REQUIRE(waitUntil([&] { return node.getPeerCount() == 1; }, 3s));
+
+    SocketType second = connectRaw(port);
+    REQUIRE(second != INVALID_SOCK);
+    REQUIRE(sendHandshakeAdvertising(second, "twin", 8555, 1));
+
+    // Give the node time to accept it and decide.
+    std::this_thread::sleep_for(700ms);
+    const size_t count = node.getPeerCount();
+
+    closesocket(second);
+    closesocket(first);
+    node.stop();
+
+    REQUIRE(count == 1);
+}
+
+TEST_CASE("a handshake advertising port 0 is rejected", "[integration][p2p]") {
+    Blockchain chain{2, 50.0};
+    p2p::P2PConfig cfg;
+    cfg.listen_port = 0;
+    cfg.enable_logging = false;
+    p2p::P2PNode node(&chain, cfg);
+    REQUIRE(node.start());
+
+    SocketType client = connectRaw(node.getActualListenPort());
+    REQUIRE(client != INVALID_SOCK);
+    REQUIRE(sendHandshakeAdvertising(client, "portless", 0, 1));
+
+    std::this_thread::sleep_for(700ms);
+    const size_t count = node.getPeerCount();
+
+    closesocket(client);
+    node.stop();
+
+    REQUIRE(count == 0);
 }
