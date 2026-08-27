@@ -149,5 +149,18 @@ This is a learning project. Known, intentional gaps:
   senders in a received block have sufficient balance (no overspend check for
   foreign blocks). `isChainValid()` shares this gap. The local mempool does
   check balances, counting transactions already pending.
-- The persisted chain-file format includes a per-transaction public key; files
-  written by older builds will not load.
+- Monetary values are an integer count of the smallest unit (`money::Amount`,
+  1 coin = 1e8 units, capped at 21,000,000 coins), never a `double`. Equality
+  is exact, serialisation is lossless, and NaN is unrepresentable.
+- The merkle tree domain-separates leaves from internal nodes
+  (`SHA256(0x00 ‖ leaf)` vs `SHA256(0x01 ‖ l ‖ r)`) and promotes an unpaired
+  node instead of duplicating it, so `[a, b, c]` and `[a, b, c, c]` no longer
+  share a root.
+- Transactions carry a 64-bit nonce, so two identical payments in the same
+  second are distinct. It is a salt, not a sequence number: it does not order a
+  sender's transactions and does not prevent replay onto another chain, which
+  would also need a chain id.
+- **Format break.** Amounts, the transaction nonce and the merkle construction
+  all changed, so transaction and block hashes differ from earlier builds:
+  chain files and wallets written by them will not load, and a node running
+  this code will not agree with one running an older build.
