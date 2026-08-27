@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include "money.h"
 #include "fixtures.h"
 #include "Blockchain.h"
 #include "Wallet.h"
@@ -23,32 +24,32 @@ TEST_CASE("End-to-end: wallet -> tx -> mine -> validate -> save -> load",
     std::string bob   = addrs[1];
     std::string miner = addrs[2];
 
-    Blockchain chain(2, 50.0);
+    Blockchain chain(2, money::coins(50));
 
-    auto fund_tx = std::make_shared<Transaction>("system", alice, 100.0);
+    auto fund_tx = std::make_shared<Transaction>("system", alice, money::coins(100));
     chain.addTransaction(fund_tx);
     chain.minePendingTransactions(miner);
 
-    REQUIRE(chain.getBalance(alice) == 100.0);
-    REQUIRE(chain.getBalance(bob) == 0.0);
+    REQUIRE(chain.getBalance(alice) == money::coins(100));
+    REQUIRE(chain.getBalance(bob) == money::coins(0));
 
-    auto xfer = std::make_shared<Transaction>(alice, bob, 30.0);
+    auto xfer = std::make_shared<Transaction>(alice, bob, money::coins(30));
     w.signTransaction(*xfer, alice);
     chain.addTransaction(xfer);
     chain.minePendingTransactions(miner);
 
-    REQUIRE(chain.getBalance(alice) == 70.0);
-    REQUIRE(chain.getBalance(bob) == 30.0);
-    REQUIRE(chain.getBalance(miner) == 100.0);
+    REQUIRE(chain.getBalance(alice) == money::coins(70));
+    REQUIRE(chain.getBalance(bob) == money::coins(30));
+    REQUIRE(chain.getBalance(miner) == money::coins(100));
     REQUIRE(chain.isChainValid());
 
     TempDir tmp;
     std::string path = tmp.file("e2e_chain.dat");
     REQUIRE(chain.saveToFile(path));
 
-    Blockchain reloaded(2, 50.0);
+    Blockchain reloaded(2, money::coins(50));
     REQUIRE(reloaded.loadFromFile(path));
     REQUIRE(reloaded.getChainSize() == chain.getChainSize());
-    REQUIRE(reloaded.getBalance(alice) == 70.0);
-    REQUIRE(reloaded.getBalance(bob) == 30.0);
+    REQUIRE(reloaded.getBalance(alice) == money::coins(70));
+    REQUIRE(reloaded.getBalance(bob) == money::coins(30));
 }

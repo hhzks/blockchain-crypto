@@ -6,6 +6,7 @@
 #include <type_traits>
 #include "P2PMessage.h"
 #include "P2PNode.h"
+#include "money.h"
 #include "Block.h"
 #include "Transaction.h"
 #include "fixtures.h"
@@ -118,7 +119,7 @@ TEST_CASE("PeerInfo serialize/deserialize roundtrip", "[unit][p2p]") {
 TEST_CASE("TransactionSerializer roundtrip preserves timestamp and signature",
           "[unit][p2p]") {
     test_support::KeyPairFixture kf;
-    auto tx = kf.signedTx("bob", 3.5);
+    auto tx = kf.signedTx("bob", (money::coins(3) + money::COIN / 2));
 
     auto restored = TransactionSerializer::deserialize(
         TransactionSerializer::serialize(*tx));
@@ -129,7 +130,7 @@ TEST_CASE("TransactionSerializer roundtrip preserves timestamp and signature",
 
 TEST_CASE("BlockSerializer roundtrip preserves mined state", "[unit][p2p]") {
     Block b(1, "prevhash", 2);
-    b.addTransaction(std::make_shared<Transaction>("system", "miner", 50.0));
+    b.addTransaction(std::make_shared<Transaction>("system", "miner", money::coins(50)));
     b.mineBlock();
 
     auto restored = BlockSerializer::deserialize(BlockSerializer::serialize(b));
@@ -142,7 +143,7 @@ TEST_CASE("BlockSerializer roundtrip preserves mined state", "[unit][p2p]") {
 
 TEST_CASE("TransactionSerializer preserves sender public key", "[unit][p2p]") {
     test_support::KeyPairFixture kf;
-    auto tx = kf.signedTx("bob", 3.5);
+    auto tx = kf.signedTx("bob", (money::coins(3) + money::COIN / 2));
     auto restored = TransactionSerializer::deserialize(
         TransactionSerializer::serialize(*tx));
     REQUIRE(restored->getSenderPublicKey() == kf.pubHex());
@@ -153,7 +154,7 @@ TEST_CASE("BlockSerializer preserves signed transaction public key",
           "[unit][p2p]") {
     test_support::KeyPairFixture kf;
     Block b(1, "prevhash", 2);
-    b.addTransaction(kf.signedTx("bob", 5.0));
+    b.addTransaction(kf.signedTx("bob", money::coins(5)));
     b.mineBlock();
 
     auto restored = BlockSerializer::deserialize(BlockSerializer::serialize(b));
@@ -229,8 +230,8 @@ TEST_CASE("BlockSerializer::deserialize keeps a block's invalid transactions",
           "[unit][p2p]") {
     test_support::KeyPairFixture kf;
     Block b(1, "prevhash", 2);
-    b.addTransaction(kf.signedTx("bob", 5.0));
-    b.addTransaction(std::make_shared<Transaction>("system", "miner", 50.0));
+    b.addTransaction(kf.signedTx("bob", money::coins(5)));
+    b.addTransaction(std::make_shared<Transaction>("system", "miner", money::coins(50)));
     b.mineBlock();
 
     // Corrupt the signed transaction's signature on the wire: the peer sent
@@ -261,16 +262,16 @@ TEST_CASE("Peer string accessors hand back copies, not aliases",
 
     Peer peer(INVALID_SOCK, "127.0.0.1", 8333);
     peer.setNodeId("first");
-    peer.setVersion("1.0.0");
+    peer.setVersion("money::coins(1).0");
 
     const std::string& id = peer.getNodeId();
     const std::string& version = peer.getVersion();
 
     peer.setNodeId(std::string(128, 'z'));
-    peer.setVersion("2.0.0");
+    peer.setVersion("money::coins(2).0");
 
     REQUIRE(id == "first");
-    REQUIRE(version == "1.0.0");
+    REQUIRE(version == "money::coins(1).0");
 }
 
 TEST_CASE("Peer metadata stays coherent under concurrent access",

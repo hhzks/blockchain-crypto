@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include "Block.h"
 #include "Transaction.h"
+#include "money.h"
 
 // Thread-safe. The P2P receiver thread calls addBlock/addTransaction through
 // the node callbacks while the CLI thread mines, queries balances and saves,
@@ -25,19 +26,22 @@ private:
     // Seconds, matching the second-granularity block timestamps.
     static constexpr long long TARGET_BLOCK_TIME = 30;
     static constexpr int INITIAL_DIFFICULTY = 2;
-    static constexpr int INITIAL_MINING_REWARD = 50;
+    static constexpr money::Amount INITIAL_MINING_REWARD = money::coins(50);
 
     std::vector<std::shared_ptr<Block>> chain;
     std::vector<std::shared_ptr<Transaction>> pending_transactions;
     int difficulty;
-    double mining_reward;
-    std::unordered_map<std::string, double> balances;
+    money::Amount mining_reward;
+    std::unordered_map<std::string, money::Amount> balances;
 
     mutable std::recursive_mutex chain_mutex;
 
 public:
     Blockchain();
-    Blockchain(int initial_difficulty, double initial_reward);
+    Blockchain(int initial_difficulty, money::Amount initial_reward);
+    // Deleted for the same reason as Transaction's: 50.0 would quietly mean
+    // 50 units rather than 50 coins.
+    Blockchain(int initial_difficulty, double initial_reward) = delete;
 
     std::shared_ptr<Block> createGenesisBlock();
     std::shared_ptr<Block> getLatestBlock() const;
@@ -47,9 +51,9 @@ public:
     // path that appends a block. The chain rescan this used to do was
     // O(blocks x transactions) on the hot path: addTransaction calls it for
     // every submitted transaction.
-    double getBalance(const std::string& address) const;
+    money::Amount getBalance(const std::string& address) const;
     // Total already queued for spending by `address` in the pending pool.
-    double pendingOutflow(const std::string& address) const;
+    money::Amount pendingOutflow(const std::string& address) const;
     int calculateRequiredDifficulty() const;
     bool validateBlockDifficulty(const std::shared_ptr<Block>& block) const;
     bool isChainValid() const;
@@ -74,14 +78,15 @@ public:
         std::scoped_lock lock(chain_mutex);
         return difficulty;
     }
-    double getMiningReward() const {
+    money::Amount getMiningReward() const {
         std::scoped_lock lock(chain_mutex);
         return mining_reward;
     }
-    void setMiningReward(double reward) {
+    void setMiningReward(money::Amount reward) {
         std::scoped_lock lock(chain_mutex);
         mining_reward = reward;
     }
+    void setMiningReward(double reward) = delete;
     size_t getChainSize() const {
         std::scoped_lock lock(chain_mutex);
         return chain.size();

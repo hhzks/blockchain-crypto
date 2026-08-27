@@ -5,12 +5,12 @@
 #include <print>
 #include <cmath>
 
-Transaction::Transaction(const std::string& from, const std::string& to, double value)
+Transaction::Transaction(const std::string& from, const std::string& to, money::Amount value)
     : sender(from), receiver(to), amount(value), timestamp(utils::getCurrentTimestamp()) {
     signature = "";
 }
 
-Transaction::Transaction(const std::string& from, const std::string& to, double value,
+Transaction::Transaction(const std::string& from, const std::string& to, money::Amount value,
                          long long tx_timestamp, const std::string& tx_signature)
     : sender(from), receiver(to), amount(value), timestamp(tx_timestamp),
       signature(tx_signature) {
@@ -118,7 +118,7 @@ bool Transaction::verifySignatureByAddress(const std::string& address) const {
 std::string Transaction::toString() const {
     return std::format(
         "Transaction {{\n  From: {}\n  To: {}\n  Amount: {}\n  Timestamp: {}\n  Hash: {}\n  Signature: {}\n}}\n",
-        sender, receiver, amount, timestamp, calculateHash(),
+        sender, receiver, money::format(amount), timestamp, calculateHash(),
         signature.empty() ? "Not signed" : signature.substr(0, 16) + "..."
     );
 }
@@ -130,11 +130,10 @@ bool Transaction::isValid() const {
         return false;
     }
     
-    // NaN fails every comparison, so `amount <= 0` alone let it through, and
-    // INFINITY passes that check on its own merits. Either one permanently
-    // poisons a balance, since `balance < amount` is false for NaN too.
-    if (!std::isfinite(amount) || amount <= 0) {
-        std::println(stderr, "Invalid transaction: Amount must be positive and finite");
+    // Amount is an integer count of the smallest unit, so NaN and infinity
+    // are no longer representable; what is left to check is the range.
+    if (!money::isValidAmount(amount)) {
+        std::println(stderr, "Invalid transaction: Amount must be positive and within the supply cap");
         return false;
     }
     
@@ -175,7 +174,9 @@ bool Transaction::isValid() const {
 }
 
 std::string Transaction::getTransactionData() const {
-    return std::format("{}:{}:{:.8f}:{}", sender, receiver, amount, timestamp);
+    // Integer units, so the pre-image is exact rather than a rounded decimal
+    // rendering that had to survive a text round-trip to compare equal.
+    return std::format("{}:{}:{}:{}", sender, receiver, amount, timestamp);
 }
 
 std::string Transaction::derivedAddressFromKey() const {

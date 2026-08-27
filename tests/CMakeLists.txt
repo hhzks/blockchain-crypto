@@ -13,6 +13,7 @@ include(Catch)
 
 set(TEST_SOURCES
     unit/utils_test.cpp
+    unit/money_test.cpp
     unit/sha_test.cpp
     unit/bigint_test.cpp
     unit/bigint_ops_test.cpp

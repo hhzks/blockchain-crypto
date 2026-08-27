@@ -3,6 +3,7 @@
 #include "include/P2PNode.h"
 #include "include/utils.h"
 #include "include/Wallet.h"
+#include "include/money.h"
 #include <iostream>
 #include <memory>
 #include <string>
@@ -51,6 +52,17 @@ std::optional<double> promptDouble(const std::string& prompt) {
     while (promptLine(prompt, line)) {
         if (auto value = utils::parseDouble(line)) return value;
         std::cout << "Please enter a number." << std::endl;
+    }
+    return std::nullopt;
+}
+
+// Coin figures, entered as decimals and held as integer units.
+std::optional<money::Amount> promptAmount(const std::string& prompt) {
+    std::string line;
+    while (promptLine(prompt, line)) {
+        if (auto value = money::parse(line)) return value;
+        std::cout << "Please enter a positive amount with at most 8 decimal places."
+                  << std::endl;
     }
     return std::nullopt;
 }
@@ -170,7 +182,7 @@ void listAddresses(const wallet::Wallet& w, const Blockchain& blockchain) {
     std::cout << "Addresses (" << addresses.size() << "):" << std::endl;
     for (const auto& address : addresses) {
         std::cout << "  " << address
-                  << "  balance " << blockchain.getBalance(address)
+                  << "  balance " << money::format(blockchain.getBalance(address))
                   << (address == selected ? "  [selected]" : "")
                   << std::endl;
     }
@@ -279,11 +291,12 @@ void addTransaction(wallet::Wallet& w, Blockchain& blockchain) {
     }
 
     std::cout << "Sending from " << sender
-              << " (balance " << blockchain.getBalance(sender) << ")" << std::endl;
+              << " (balance " << money::format(blockchain.getBalance(sender))
+              << ")" << std::endl;
 
     const auto receiver = promptText("Enter receiver address: ");
     if (!receiver) return;
-    const auto amount = promptDouble("Enter amount: ");
+    const auto amount = promptAmount("Enter amount: ");
     if (!amount) return;
 
     auto transaction = std::make_shared<Transaction>(sender, *receiver, *amount);
@@ -519,8 +532,9 @@ int main() {
             case 3: {
                 const auto address = promptText("Enter address to check: ");
                 if (!address) break;
-                double balance = blockchain.getBalance(*address);
-                std::cout << "Balance for " << *address << ": " << balance << std::endl;
+                const money::Amount balance = blockchain.getBalance(*address);
+                std::cout << "Balance for " << *address << ": "
+                          << money::format(balance) << std::endl;
                 break;
             }
             

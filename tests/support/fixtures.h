@@ -6,6 +6,7 @@
 #include <mutex>
 #include <random>
 #include <sstream>
+#include "money.h"
 #include "Blockchain.h"
 #include "Wallet.h"
 #include "Transaction.h"
@@ -26,7 +27,7 @@ struct KeyPairFixture {
     const std::string& pubHex() const { return kp->public_key_hex; }
 
     std::shared_ptr<Transaction> signedTx(
-        const std::string& to, double amount) const
+        const std::string& to, money::Amount amount) const
     {
         auto tx = std::make_shared<Transaction>(kp->address, to, amount);
         tx->signTransaction(kp->private_key_hex);
@@ -36,10 +37,10 @@ struct KeyPairFixture {
 
 // Pre-mined blockchain at low difficulty for fast tests
 struct MinedChainFixture {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     MinedChainFixture() = default;
 
-    void seedFunds(const std::string& to, double amount, const std::string& miner) {
+    void seedFunds(const std::string& to, money::Amount amount, const std::string& miner) {
         auto tx = std::make_shared<Transaction>("system", to, amount);
         chain.addTransaction(tx);
         chain.minePendingTransactions(miner);
@@ -68,8 +69,8 @@ struct TempDir {
 
 // Two P2PNodes on loopback, handshake done. 2s timeouts on all waits.
 struct LoopbackPeerFixture {
-    Blockchain chain_a{2, 50.0};
-    Blockchain chain_b{2, 50.0};
+    Blockchain chain_a{2, money::coins(50)};
+    Blockchain chain_b{2, money::coins(50)};
     std::unique_ptr<p2p::P2PNode> node_a;
     std::unique_ptr<p2p::P2PNode> node_b;
 

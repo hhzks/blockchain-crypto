@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <fstream>
 #include <iterator>
+#include "money.h"
 #include "Wallet.h"
 #include "keystore.h"
 #include "Blockchain.h"
@@ -40,7 +41,7 @@ TEST_CASE("signTransaction + verifyTransaction roundtrip", "[unit][wallet]") {
     REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
     std::string addr = w.getAllAddresses()[0];
 
-    Transaction t(addr, "receiver", 1.0);
+    Transaction t(addr, "receiver", money::coins(1));
     REQUIRE(w.signTransaction(t, addr));
     REQUIRE(w.verifyTransaction(t, addr));
 }
@@ -51,7 +52,7 @@ TEST_CASE("signTransaction rejects mismatched sender", "[unit][wallet]") {
     REQUIRE(w.importPrivateKey(
         "0000000000000000000000000000000000000000000000000000000000005678"));
     auto addrs = w.getAllAddresses();
-    Transaction t(addrs[1], "receiver", 1.0);
+    Transaction t(addrs[1], "receiver", money::coins(1));
     REQUIRE_FALSE(w.signTransaction(t, addrs[0]));
 }
 
@@ -108,7 +109,7 @@ TEST_CASE("a generated key signs a transaction that validates end to end",
     wallet::Wallet w;
     const std::string address = w.generateNewAddress();
 
-    Transaction tx(address, "receiver", 5.0);
+    Transaction tx(address, "receiver", money::coins(5));
     REQUIRE(tx.signTransaction(w.getPrivateKeyHex(address)));
     tx.setSenderPublicKey(w.getPublicKeyHex(address));
     REQUIRE(tx.isValid());
@@ -238,9 +239,9 @@ TEST_CASE("a wallet-signed transaction is accepted by the chain",
     REQUIRE_FALSE(address.empty());
     REQUIRE(w.getDefaultAddress() == address);
 
-    f.seedFunds(address, 100.0, "miner_1");
+    f.seedFunds(address, money::coins(100), "miner_1");
 
-    auto tx = std::make_shared<Transaction>(address, "receiver", 30.0);
+    auto tx = std::make_shared<Transaction>(address, "receiver", money::coins(30));
     REQUIRE(w.signTransaction(*tx, address));
     REQUIRE(tx->isValid());
 
@@ -248,6 +249,6 @@ TEST_CASE("a wallet-signed transaction is accepted by the chain",
     REQUIRE(f.chain.getPendingTransactions().size() == 1);
 
     f.chain.minePendingTransactions("miner_1");
-    REQUIRE(f.chain.getBalance(address) == 70.0);
-    REQUIRE(f.chain.getBalance("receiver") == 30.0);
+    REQUIRE(f.chain.getBalance(address) == money::coins(70));
+    REQUIRE(f.chain.getBalance("receiver") == money::coins(30));
 }
