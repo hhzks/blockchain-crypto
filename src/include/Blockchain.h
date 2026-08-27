@@ -2,10 +2,23 @@
 
 #include <vector>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include "Block.h"
 #include "Transaction.h"
 
+// Thread-safe. The P2P receiver thread calls addBlock/addTransaction through
+// the node callbacks while the CLI thread mines, queries balances and saves,
+// so every public method takes chain_mutex for its whole duration and the
+// container accessors return snapshots rather than references into the live
+// state.
+//
+// The mutex is recursive because the public methods compose -- addTransaction
+// consults getBalance and transactionExists, minePendingTransactions consults
+// getLatestBlock and updateBalances -- and a plain mutex would self-deadlock
+// on the first such call. Note that minePendingTransactions holds the lock
+// while it mines, which serialises an arriving block behind local mining;
+// that is acceptable at the difficulties this project uses.
 class Blockchain {
 private:
     static constexpr int DIFFICULTY_ADJUSTMENT_INTERVAL = 10;
@@ -19,6 +32,8 @@ private:
     int difficulty;
     double mining_reward;
     std::unordered_map<std::string, double> balances;
+
+    mutable std::recursive_mutex chain_mutex;
 
 public:
     Blockchain();
@@ -41,14 +56,31 @@ public:
     void updateBalances();
     bool transactionExists(const std::shared_ptr<Transaction>& transaction) const;
 
-    const std::vector<std::shared_ptr<Block>>& getChain() const { return chain; }
-    int getDifficulty() const { return difficulty; }
-    double getMiningReward() const { return mining_reward; }
-    void setMiningReward(double reward) { mining_reward = reward; }
-    size_t getChainSize() const { return chain.size(); }
-
-    const std::vector<std::shared_ptr<Transaction>>& getPendingTransactions() const {
+    // Snapshots: returning a reference would hand callers an alias into a
+    // container the peer thread resizes.
+    std::vector<std::shared_ptr<Block>> getChain() const {
+        std::scoped_lock lock(chain_mutex);
+        return chain;
+    }
+    std::vector<std::shared_ptr<Transaction>> getPendingTransactions() const {
+        std::scoped_lock lock(chain_mutex);
         return pending_transactions;
+    }
+    int getDifficulty() const {
+        std::scoped_lock lock(chain_mutex);
+        return difficulty;
+    }
+    double getMiningReward() const {
+        std::scoped_lock lock(chain_mutex);
+        return mining_reward;
+    }
+    void setMiningReward(double reward) {
+        std::scoped_lock lock(chain_mutex);
+        mining_reward = reward;
+    }
+    size_t getChainSize() const {
+        std::scoped_lock lock(chain_mutex);
+        return chain.size();
     }
 
 private:

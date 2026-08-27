@@ -1,6 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
 #include <fstream>
+#include <atomic>
+#include <thread>
+#include <vector>
 #include <string>
 #include "Blockchain.h"
 #include "utils.h"
@@ -350,4 +353,57 @@ TEST_CASE("addBlock rejects a block replaying an already-mined transaction",
 
     REQUIRE_FALSE(f.chain.addBlock(replay));
     REQUIRE(f.chain.getBalance("bob") == bob_balance);
+}
+
+TEST_CASE("chain and mempool accessors hand back snapshots, not aliases",
+          "[unit][blockchain]") {
+    // The P2P receiver thread calls addBlock and addTransaction while the CLI
+    // thread walks the chain. An accessor returning a reference to the member
+    // vector hands that walk an alias into a container being resized -- the
+    // reallocation invalidates it mid-loop. Deterministic single-threaded:
+    MinedChainFixture f;
+
+    const std::vector<std::shared_ptr<Transaction>>& pending =
+        f.chain.getPendingTransactions();
+    REQUIRE(pending.empty());
+    f.chain.addTransaction(std::make_shared<Transaction>("system", "alice", 10.0));
+    REQUIRE(pending.empty());
+
+    const std::vector<std::shared_ptr<Block>>& blocks = f.chain.getChain();
+    const size_t height = blocks.size();
+    f.chain.minePendingTransactions("miner_1");
+    REQUIRE(blocks.size() == height);
+}
+
+TEST_CASE("Blockchain tolerates a peer thread writing while the CLI reads",
+          "[unit][blockchain]") {
+    // A smoke test, not a proof: without a thread sanitiser a data race can
+    // run clean. It does catch a reader walking a vector mid-reallocation.
+    MinedChainFixture f;
+    f.seedFunds("alice", 100.0, "miner_1");
+
+    constexpr int rounds = 2000;
+    std::atomic<bool> stop{false};
+    std::atomic<bool> go{false};
+
+    std::thread peer_thread([&] {
+        while (!go.load()) { }
+        for (int i = 0; i < rounds && !stop.load(); ++i) {
+            f.chain.addTransaction(std::make_shared<Transaction>(
+                "system", "receiver_" + std::to_string(i), 1.0));
+        }
+    });
+
+    go = true;
+    for (int i = 0; i < rounds; ++i) {
+        auto snapshot = f.chain.getChain();
+        REQUIRE(snapshot.size() >= 2);
+        auto pending = f.chain.getPendingTransactions();
+        REQUIRE(pending.size() <= static_cast<size_t>(rounds));
+        (void)f.chain.getBalance("alice");
+    }
+
+    stop = true;
+    peer_thread.join();
+    SUCCEED("no torn reads observed");
 }
