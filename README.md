@@ -15,8 +15,8 @@ wallet key management, on-disk persistence, and peer-to-peer node connection.
 - **Chain validation** end to end (`isChainValid`), plus `addBlock()` for
   validating and appending a block received from a peer.
 - **Wallets**: keypair generation/import, address derivation, transaction
-  signing, and a keystore file (keys are currently saved as plaintext hex — the
-  `password` argument is accepted but not yet applied).
+  signing, and a password-encrypted keystore file (PBKDF2-HMAC-SHA256 for the
+  key, an HMAC-SHA256 counter-mode keystream, encrypt-then-MAC for integrity).
 - **Persistence**: save/load the whole chain to a text file.
 - **P2P networking**: a TCP node (Winsock on Windows, POSIX sockets elsewhere)
   that handshakes with peers, gossips transactions and blocks, and syncs.
@@ -134,7 +134,12 @@ ctest --test-dir build --output-on-failure
 This is a learning project. Known, intentional gaps:
 
 - The SHA-256, `BigInt`, and ECDSA code is hand-rolled, **unaudited, and not
-  constant-time**.
+  constant-time**. So is the keystore: its HMAC, PBKDF2 and encrypt-then-MAC
+  construction is standard, but it is built on this project's own SHA-256 and
+  has had no review. It raises the cost of reading a stolen keystore from
+  "open the file" to "run a PBKDF2 dictionary attack" — it is not a substitute
+  for a reviewed implementation, and the default of 200,000 iterations is a
+  floor rather than a modern target.
 - Balances are tracked by address string and recomputed from chain history.
 - `addBlock()` validates structure, proof-of-work, difficulty, per-transaction
   signatures, the mining-reward invariant, and rejects a block that replays a

@@ -1,5 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
+#include <fstream>
+#include <iterator>
 #include "Wallet.h"
+#include "keystore.h"
 #include "Transaction.h"
 #include "ECCrypto.h"
 #include "fixtures.h"
@@ -142,4 +145,82 @@ TEST_CASE("wallet::utils::createRandomWallet yields a usable default address",
     // Two wallets must not share a key.
     auto other = wallet::utils::createRandomWallet();
     REQUIRE(other->getDefaultAddress() != address);
+}
+
+TEST_CASE("saved keystores do not contain the private key in the clear",
+          "[unit][wallet]") {
+    TempDir tmp;
+    const std::string path = tmp.file("encrypted.dat");
+
+    wallet::Wallet w;
+    REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
+    REQUIRE(w.saveToFile(path, "a good password"));
+
+    std::ifstream in(path, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(in)),
+                               std::istreambuf_iterator<char>());
+
+    REQUIRE_FALSE(contents.empty());
+    REQUIRE(contents.find(test_vectors::fixture_priv_hex) == std::string::npos);
+    REQUIRE(contents.find(w.getAllAddresses()[0]) == std::string::npos);
+}
+
+TEST_CASE("a keystore round-trips under its own password", "[unit][wallet]") {
+    TempDir tmp;
+    const std::string path = tmp.file("roundtrip.dat");
+
+    std::string address;
+    {
+        wallet::Wallet w;
+        REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
+        address = w.getAllAddresses()[0];
+        REQUIRE(w.saveToFile(path, "pw"));
+    }
+
+    wallet::Wallet loaded;
+    REQUIRE(loaded.loadFromFile(path, "pw"));
+    REQUIRE(loaded.hasAddress(address));
+    REQUIRE(loaded.getPrivateKeyHex(address) == test_vectors::fixture_priv_hex);
+    REQUIRE(loaded.getDefaultAddress() == address);
+}
+
+TEST_CASE("loading with the wrong password fails and keeps the existing keys",
+          "[unit][wallet]") {
+    TempDir tmp;
+    const std::string path = tmp.file("wrongpw.dat");
+
+    {
+        wallet::Wallet w;
+        REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
+        REQUIRE(w.saveToFile(path, "right"));
+    }
+
+    wallet::Wallet holder;
+    const std::string kept = holder.generateNewAddress();
+    REQUIRE_FALSE(kept.empty());
+
+    REQUIRE_FALSE(holder.loadFromFile(path, "wrong"));
+    // A failed load must not throw away what the wallet already held.
+    REQUIRE(holder.hasAddress(kept));
+}
+
+TEST_CASE("loadFromFile reports failure when an entry cannot be imported",
+          "[unit][wallet]") {
+    TempDir tmp;
+    const std::string path = tmp.file("corrupt.dat");
+
+    wallet::Wallet w;
+    REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
+    REQUIRE(w.saveToFile(path, "pw"));
+
+    // Re-encrypt a body whose key material is not importable. Previously every
+    // line could fail and loadFromFile still returned true.
+    const std::string broken_body =
+        "DEFAULT:abc\nabc:notavalidkey:notavalidkey\n";
+    std::ofstream out(path, std::ios::binary);
+    out << keystore::encrypt(broken_body, "pw");
+    out.close();
+
+    wallet::Wallet loaded;
+    REQUIRE_FALSE(loaded.loadFromFile(path, "pw"));
 }
