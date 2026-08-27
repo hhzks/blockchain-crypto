@@ -1,7 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <stdexcept>
 #include <limits>
+#include <atomic>
+#include <thread>
+#include <type_traits>
 #include "P2PMessage.h"
+#include "P2PNode.h"
 #include "Block.h"
 #include "Transaction.h"
 #include "fixtures.h"
@@ -241,4 +245,69 @@ TEST_CASE("BlockSerializer::deserialize keeps a block's invalid transactions",
     auto restored = BlockSerializer::deserialize(wire);
     REQUIRE(restored->getTransactions().size() == 2);
     REQUIRE_FALSE(restored->isValid());
+}
+
+TEST_CASE("Peer string accessors hand back copies, not aliases",
+          "[unit][p2p]") {
+    // handleHandshake calls setNodeId on the receiver thread while the ping,
+    // sync and CLI threads read the same peer. A getter returning a reference
+    // to the member hands those readers an alias into state that is being
+    // reassigned underneath them -- a dangling pointer once the string
+    // reallocates. Deterministically visible even single-threaded:
+    static_assert(std::is_same_v<decltype(std::declval<const Peer&>().getNodeId()),
+                                 std::string>);
+    static_assert(std::is_same_v<decltype(std::declval<const Peer&>().getVersion()),
+                                 std::string>);
+
+    Peer peer(INVALID_SOCK, "127.0.0.1", 8333);
+    peer.setNodeId("first");
+    peer.setVersion("1.0.0");
+
+    const std::string& id = peer.getNodeId();
+    const std::string& version = peer.getVersion();
+
+    peer.setNodeId(std::string(128, 'z'));
+    peer.setVersion("2.0.0");
+
+    REQUIRE(id == "first");
+    REQUIRE(version == "1.0.0");
+}
+
+TEST_CASE("Peer metadata stays coherent under concurrent access",
+          "[unit][p2p]") {
+    // A smoke test, not a proof: without a thread sanitiser a data race can
+    // run clean. It does catch a reader observing a half-written value.
+    Peer peer(INVALID_SOCK, "127.0.0.1", 8333);
+
+    constexpr int rounds = 200000;
+    std::atomic<bool> stop{false};
+    std::atomic<bool> go{false};
+
+    std::thread writer([&] {
+        while (!go.load()) { }
+        for (int i = 0; i < rounds && !stop.load(); ++i) {
+            peer.setNodeId(i % 2 == 0 ? std::string(4, 'a') : std::string(64, 'b'));
+            peer.setBlockHeight(i);
+            peer.setState(i % 2 == 0 ? PeerState::CONNECTED : PeerState::HANDSHAKING);
+            peer.updateLastSeen();
+        }
+    });
+
+    go = true;
+    for (int i = 0; i < rounds; ++i) {
+        PeerInfo info = peer.toPeerInfo();
+        const bool sane = info.node_id.empty() || info.node_id.size() == 4 ||
+                          info.node_id.size() == 64;
+        if (!sane) {
+            stop = true;
+            writer.join();
+            FAIL("torn node_id of length " << info.node_id.size());
+        }
+        (void)peer.getState();
+        (void)peer.getBlockHeight();
+    }
+
+    stop = true;
+    writer.join();
+    SUCCEED("no torn reads observed");
 }
