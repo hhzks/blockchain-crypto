@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <unordered_set>
 #include <format>
+#include <cmath>
 
 Blockchain::Blockchain() : difficulty(INITIAL_DIFFICULTY), mining_reward(INITIAL_MINING_REWARD) {
     chain.push_back(createGenesisBlock());
@@ -320,34 +321,65 @@ bool Blockchain::loadFromFile(const std::string& filename) {
         std::cout << "Failed to open file for reading: " << filename << std::endl;
         return false;
     }
-    
-    chain.clear();
-    pending_transactions.clear();
-    
-    file >> difficulty >> mining_reward;
-    
-    size_t chain_size;
-    file >> chain_size;
-    
-    for (size_t i = 0; i < chain_size; i++) {
-        int index;
-        long long timestamp;
-        std::string prev_hash, hash, merkle_root;
-        int block_difficulty, nonce;
 
-        file >> index >> timestamp >> prev_hash >> hash >> merkle_root >> block_difficulty >> nonce;
+    // Every extraction below is checked. Once a stream is in a fail state,
+    // operator>> returns without touching its target, so an unchecked read
+    // leaves the variable at whatever it held before -- which is how a
+    // malformed file used to drive the block loop with an indeterminate count.
+    auto fail = [&filename](const std::string& reason) {
+        std::cout << "Failed to load " << filename << ": " << reason << std::endl;
+        return false;
+    };
+
+    int file_difficulty = 0;
+    double file_reward = 0.0;
+    size_t chain_size = 0;
+
+    if (!(file >> file_difficulty >> file_reward)) {
+        return fail("unreadable header (difficulty, mining reward)");
+    }
+    if (!std::isfinite(file_reward) || file_reward <= 0) {
+        return fail(std::format("invalid mining reward {}", file_reward));
+    }
+    if (!(file >> chain_size)) {
+        return fail("unreadable block count");
+    }
+
+    // Parse into a local chain: the live one stays untouched until the file
+    // has been read in full and validated, so a typo'd filename or a corrupt
+    // file no longer leaves the node with nothing.
+    std::vector<std::shared_ptr<Block>> parsed;
+
+    for (size_t i = 0; i < chain_size; i++) {
+        int index = 0;
+        long long timestamp = 0;
+        std::string prev_hash, hash, merkle_root;
+        int block_difficulty = 0;
+        int nonce = 0;
+
+        if (!(file >> index >> timestamp >> prev_hash >> hash >> merkle_root
+                   >> block_difficulty >> nonce)) {
+            return fail(std::format("unreadable header for block {}", i));
+        }
 
         auto block = std::make_shared<Block>(index, prev_hash, block_difficulty, timestamp);
 
-        size_t tx_count;
-        file >> tx_count;
+        size_t tx_count = 0;
+        if (!(file >> tx_count)) {
+            return fail(std::format("unreadable transaction count in block {}", i));
+        }
+
+        std::vector<std::shared_ptr<Transaction>> txs;
 
         for (size_t j = 0; j < tx_count; j++) {
             std::string sender, receiver, signature, pubkey;
-            double amount;
-            long long tx_timestamp;
+            double amount = 0.0;
+            long long tx_timestamp = 0;
 
-            file >> sender >> receiver >> amount >> tx_timestamp >> signature >> pubkey;
+            if (!(file >> sender >> receiver >> amount >> tx_timestamp
+                       >> signature >> pubkey)) {
+                return fail(std::format("unreadable transaction {} in block {}", j, i));
+            }
             if (signature == "-") {
                 signature.clear();
             }
@@ -358,21 +390,45 @@ bool Blockchain::loadFromFile(const std::string& filename) {
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
                                                     tx_timestamp, signature);
             tx->setSenderPublicKey(pubkey);
-            block->addTransaction(tx);
+            txs.push_back(tx);
         }
 
+        // Restore the block as written, then check it; rebuilding it through
+        // addTransaction would drop invalid transactions and report the
+        // resulting merkle mismatch instead of the real defect.
+        block->setTransactions(std::move(txs));
         block->setMinedState(nonce, hash);
 
         if (block->getMerkleRoot() != merkle_root) {
-            std::cout << "Merkle root mismatch in block " << index
-                      << " while loading " << filename << std::endl;
-            return false;
+            return fail(std::format("merkle root mismatch in block {}", index));
         }
 
-        chain.push_back(block);
+        parsed.push_back(block);
     }
-    
+
     file.close();
+
+    // Adopt the parsed chain only if it validates: hashes, proof of work,
+    // difficulty schedule, previous-hash linkage and timestamps were all
+    // previously taken from the file on trust.
+    auto previous_chain = std::move(chain);
+    const int previous_difficulty = difficulty;
+    const double previous_reward = mining_reward;
+
+    chain = std::move(parsed);
+    difficulty = file_difficulty;
+    mining_reward = file_reward;
+
+    if (!isChainValid()) {
+        chain = std::move(previous_chain);
+        difficulty = previous_difficulty;
+        mining_reward = previous_reward;
+        return fail("chain failed validation");
+    }
+
+    pending_transactions.clear();
+    updateBalances();
+
     std::cout << "Blockchain loaded from " << filename << std::endl;
     return true;
 }
