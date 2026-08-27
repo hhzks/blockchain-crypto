@@ -68,6 +68,12 @@ private:
     const std::string ip;
     const uint16_t port;
 
+    // The port the peer listens on, as advertised in its handshake -- not the
+    // ephemeral source port of an inbound socket, which nothing can dial.
+    // Known up front for outbound connections, zero until the handshake for
+    // inbound ones.
+    std::atomic<uint16_t> listen_port;
+
     std::atomic<PeerState> state;
     std::atomic<int64_t> last_seen;
     std::atomic<int64_t> connected_at;
@@ -88,7 +94,8 @@ private:
 
 public:
     Peer(SocketType sock, const std::string& peer_ip, uint16_t peer_port)
-        : socket(sock), ip(peer_ip), port(peer_port), state(PeerState::CONNECTING),
+        : socket(sock), ip(peer_ip), port(peer_port), listen_port(0),
+          state(PeerState::CONNECTING),
           last_seen(0), connected_at(0), block_height(0) {
         const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()
@@ -110,6 +117,19 @@ public:
     }
     const std::string& getIp() const { return ip; }  // const after construction
     uint16_t getPort() const { return port; }
+    uint16_t getListenPort() const { return listen_port.load(); }
+    void setListenPort(uint16_t p) { listen_port.store(p); }
+
+    // Where other nodes should dial this peer. Falls back to the socket port,
+    // which is right for outbound connections and the best guess before an
+    // inbound peer has handshaked.
+    uint16_t getAdvertisedPort() const {
+        const uint16_t advertised = listen_port.load();
+        return advertised != 0 ? advertised : port;
+    }
+    std::string getAdvertisedAddress() const {
+        return ip + ":" + std::to_string(getAdvertisedPort());
+    }
     PeerState getState() const { return state.load(); }
     int64_t getLastSeen() const { return last_seen.load(); }
     int64_t getConnectedAt() const { return connected_at.load(); }
@@ -140,7 +160,7 @@ public:
     }
 
     PeerInfo toPeerInfo() const {
-        return PeerInfo{ip, port, getNodeId(), last_seen.load()};
+        return PeerInfo{ip, getAdvertisedPort(), getNodeId(), last_seen.load()};
     }
 
     bool send(const Message& msg);
@@ -249,6 +269,12 @@ private:
     void pingPeers();
     void syncPeriodically();
     
+    // True if some peer already reachable at `advertised_address` is
+    // connected or handshaking, whatever socket it arrived on.
+    bool hasPeerAt(const std::string& advertised_address) const;
+    bool hasPeerWithNodeId(const std::string& peer_node_id,
+                           const Peer* except) const;
+
     void cancelSync(const std::string& reason);
     void cancelSyncIfPeer(const std::string& peer_address, const std::string& reason);
     void cancelStalledSync();
