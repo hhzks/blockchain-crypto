@@ -9,11 +9,13 @@
 
 Blockchain::Blockchain() : difficulty(INITIAL_DIFFICULTY), mining_reward(INITIAL_MINING_REWARD) {
     chain.push_back(createGenesisBlock());
+    updateBalances();
 }
 
 Blockchain::Blockchain(int initial_difficulty, double initial_reward)
     : difficulty(initial_difficulty), mining_reward(initial_reward) {
     chain.push_back(createGenesisBlock());
+    updateBalances();
 }
 
 std::shared_ptr<Block> Blockchain::createGenesisBlock() {
@@ -135,24 +137,11 @@ bool Blockchain::validateBlockDifficulty(const std::shared_ptr<Block>& block) co
     return true;
 }
 
-double Blockchain::getBalance(const std::string& address) {
+double Blockchain::getBalance(const std::string& address) const {
     std::scoped_lock lock(chain_mutex);
 
-    double balance = 0.0;
-    
-    // Calculate balance by going through all transactions in all blocks
-    for (const auto& block : chain) {
-        for (const auto& transaction : block->getTransactions()) {
-            if (transaction->getReceiver() == address) {
-                balance += transaction->getAmount();
-            }
-            if (transaction->getSender() == address) {
-                balance -= transaction->getAmount();
-            }
-        }
-    }
-    
-    return balance;
+    auto it = balances.find(address);
+    return it != balances.end() ? it->second : 0.0;
 }
 
 double Blockchain::pendingOutflow(const std::string& address) const {
@@ -503,7 +492,11 @@ void Blockchain::updateBalances() {
             // Credit receiver
             balances[transaction->getReceiver()] += transaction->getAmount();
             
-            // Debit sender (except for system transactions)
+            // "system" is the mint, not an account: a mining reward has no
+            // funding source to debit. This is now the only definition of the
+            // rule -- getBalance used to carry a second, subtly different one
+            // that debited "system" too, and the two could only agree while
+            // nothing read this map.
             if (transaction->getSender() != "system") {
                 balances[transaction->getSender()] -= transaction->getAmount();
             }

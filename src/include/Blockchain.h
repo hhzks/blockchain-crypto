@@ -43,7 +43,11 @@ public:
     std::shared_ptr<Block> getLatestBlock() const;
     void addTransaction(std::shared_ptr<Transaction> transaction);
     void minePendingTransactions(const std::string& reward_address);
-    double getBalance(const std::string& address);
+    // Served from the balances cache, which updateBalances rebuilds on every
+    // path that appends a block. The chain rescan this used to do was
+    // O(blocks x transactions) on the hot path: addTransaction calls it for
+    // every submitted transaction.
+    double getBalance(const std::string& address) const;
     // Total already queued for spending by `address` in the pending pool.
     double pendingOutflow(const std::string& address) const;
     int calculateRequiredDifficulty() const;

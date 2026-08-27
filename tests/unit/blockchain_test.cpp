@@ -407,3 +407,62 @@ TEST_CASE("Blockchain tolerates a peer thread writing while the CLI reads",
     peer_thread.join();
     SUCCEED("no torn reads observed");
 }
+
+TEST_CASE("getBalance is callable on a const chain", "[unit][blockchain]") {
+    MinedChainFixture f;
+    f.seedFunds("alice", 100.0, "miner_1");
+
+    const Blockchain& frozen = f.chain;
+    REQUIRE(frozen.getBalance("alice") == 100.0);
+    REQUIRE(frozen.getBalance("nobody") == 0.0);
+}
+
+TEST_CASE("system is a mint, not an account with a balance",
+          "[unit][blockchain]") {
+    // getBalance debited every sender including "system", while
+    // updateBalances skipped that debit. The two rules only agreed because
+    // nothing read the cache; there is one rule now, and this pins it.
+    MinedChainFixture f;
+    f.seedFunds("alice", 100.0, "miner_1");
+
+    REQUIRE(f.chain.getBalance("system") == 0.0);
+    REQUIRE(f.chain.getBalance("alice") == 100.0);
+    REQUIRE(f.chain.getBalance("miner_1") == 50.0);
+}
+
+TEST_CASE("balances stay correct across every path that appends a block",
+          "[unit][blockchain]") {
+    // Serving getBalance from the cache is only safe if every mutation path
+    // refreshes it. Mining, accepting a foreign block, and loading from disk
+    // are the three.
+    MinedChainFixture f;
+    KeyPairFixture alice;
+    f.seedFunds(alice.address(), 100.0, "miner_1");
+    REQUIRE(f.chain.getBalance(alice.address()) == 100.0);
+
+    f.chain.addTransaction(alice.signedTx("bob", 25.0));
+    f.chain.minePendingTransactions("miner_1");
+    REQUIRE(f.chain.getBalance(alice.address()) == 75.0);
+    REQUIRE(f.chain.getBalance("bob") == 25.0);
+
+    auto tip = f.chain.getLatestBlock();
+    auto block = std::make_shared<Block>(
+        static_cast<int>(f.chain.getChainSize()), tip->getHash(),
+        f.chain.calculateRequiredDifficulty());
+    block->addTransaction(alice.signedTx("carol", 7.0));
+    block->addTransaction(std::make_shared<Transaction>("system", "miner_2", 50.0));
+    block->mineBlock();
+    REQUIRE(f.chain.addBlock(block));
+    REQUIRE(f.chain.getBalance("carol") == 7.0);
+    REQUIRE(f.chain.getBalance(alice.address()) == 68.0);
+
+    TempDir tmp;
+    const std::string path = tmp.file("balances.dat");
+    REQUIRE(f.chain.saveToFile(path));
+
+    Blockchain loaded(2, 50.0);
+    REQUIRE(loaded.loadFromFile(path));
+    REQUIRE(loaded.getBalance(alice.address()) == 68.0);
+    REQUIRE(loaded.getBalance("bob") == 25.0);
+    REQUIRE(loaded.getBalance("carol") == 7.0);
+}
