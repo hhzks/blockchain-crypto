@@ -92,7 +92,7 @@ namespace SHA256 {
         }
     }
     
-    std::string hash(const uint8_t* data, size_t length) {
+    Digest hashRaw(const uint8_t* data, size_t length) {
         uint32_t hash[8];
         for (int i = 0; i < 8; i++) {
             hash[i] = H0[i];
@@ -115,8 +115,25 @@ namespace SHA256 {
             processBlock(&paddedMessage[i], hash);
         }
         
-        return std::format("{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
-            hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7]);
+        Digest digest{};
+        for (int i = 0; i < 8; i++) {
+            digest[i * 4 + 0] = static_cast<uint8_t>(hash[i] >> 24);
+            digest[i * 4 + 1] = static_cast<uint8_t>(hash[i] >> 16);
+            digest[i * 4 + 2] = static_cast<uint8_t>(hash[i] >> 8);
+            digest[i * 4 + 3] = static_cast<uint8_t>(hash[i]);
+        }
+        return digest;
+    }
+
+    std::string hash(const uint8_t* data, size_t length) {
+        const Digest digest = hashRaw(data, length);
+
+        std::string out;
+        out.reserve(digest.size() * 2);
+        for (uint8_t byte : digest) {
+            out += std::format("{:02x}", byte);
+        }
+        return out;
     }
 
     std::string hash(const std::string& input) {

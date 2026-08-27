@@ -2,6 +2,7 @@
 #include "include/sha.h"
 #include <chrono>
 #include <algorithm>
+#include <vector>
 #include <charconv>
 #include <cmath>
 
@@ -11,35 +12,66 @@ std::string sha256(const std::string& input) {
     return SHA256::hash(input);
 }
 
+namespace {
+
+// Domain separation, as BIP-340 and RFC 6962 do: a leaf and an internal node
+// go through the same hash function, so without a distinct prefix byte a
+// transaction hash and an interior node are the same shape.
+constexpr uint8_t MERKLE_LEAF_PREFIX = 0x00;
+constexpr uint8_t MERKLE_NODE_PREFIX = 0x01;
+
+SHA256::Digest merkleLeaf(const std::string& transaction_hash) {
+    std::vector<uint8_t> input;
+    input.reserve(1 + transaction_hash.size());
+    input.push_back(MERKLE_LEAF_PREFIX);
+    input.insert(input.end(), transaction_hash.begin(), transaction_hash.end());
+
+    return SHA256::hashRaw(input.data(), input.size());
+}
+
+SHA256::Digest merkleNode(const SHA256::Digest& left, const SHA256::Digest& right) {
+    // Raw digests, not their hex renderings: hashing the text would double
+    // the input to every call up the tree.
+    std::vector<uint8_t> input;
+    input.reserve(1 + left.size() + right.size());
+    input.push_back(MERKLE_NODE_PREFIX);
+    input.insert(input.end(), left.begin(), left.end());
+    input.insert(input.end(), right.begin(), right.end());
+
+    return SHA256::hashRaw(input.data(), input.size());
+}
+
+} // namespace
+
 std::string calculateMerkleRoot(const std::vector<std::string>& transactions) {
     if (transactions.empty()) {
         return sha256(""); // Empty merkle root
     }
-    
-    if (transactions.size() == 1) {
-        return transactions[0];
+
+    std::vector<SHA256::Digest> level;
+    level.reserve(transactions.size());
+    for (const auto& transaction : transactions) {
+        level.push_back(merkleLeaf(transaction));
     }
-    
-    std::vector<std::string> currentLevel = transactions;
-    
-    while (currentLevel.size() > 1) {
-        std::vector<std::string> nextLevel;
-        
-        for (size_t i = 0; i < currentLevel.size(); i += 2) {
-            std::string combined;
-            if (i + 1 < currentLevel.size()) {
-                combined = currentLevel[i] + currentLevel[i + 1];
+
+    while (level.size() > 1) {
+        std::vector<SHA256::Digest> next;
+        next.reserve((level.size() + 1) / 2);
+
+        for (size_t i = 0; i < level.size(); i += 2) {
+            if (i + 1 < level.size()) {
+                next.push_back(merkleNode(level[i], level[i + 1]));
             } else {
-                // If odd number of elements, duplicate the last one
-                combined = currentLevel[i] + currentLevel[i];
+                // Promoted unchanged. Duplicating it made [a, b, c] and
+                // [a, b, c, c] produce the same root.
+                next.push_back(level[i]);
             }
-            nextLevel.push_back(sha256(combined));
         }
-        
-        currentLevel = nextLevel;
+
+        level = std::move(next);
     }
-    
-    return currentLevel[0];
+
+    return bytesToHex(std::vector<unsigned char>(level[0].begin(), level[0].end()));
 }
 
 long long getCurrentTimestamp() {

@@ -19,7 +19,10 @@ TEST_CASE("addTransaction updates merkle root", "[unit][block]") {
     auto tx = std::make_shared<Transaction>("system", "alice", 10.0);
     b.addTransaction(tx);
     REQUIRE(b.getMerkleRoot() != root_empty);
-    REQUIRE(b.getMerkleRoot() == tx->calculateHash());
+    // A one-transaction root is a hashed leaf, not the leaf itself: leaves and
+    // internal nodes are domain-separated (#25).
+    REQUIRE(b.getMerkleRoot() != tx->calculateHash());
+    REQUIRE(b.getMerkleRoot().size() == 64);
 }
 
 TEST_CASE("mineBlock at difficulty 2 produces PoW-satisfying hash",
