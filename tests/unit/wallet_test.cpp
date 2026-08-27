@@ -3,6 +3,7 @@
 #include <iterator>
 #include "Wallet.h"
 #include "keystore.h"
+#include "Blockchain.h"
 #include "Transaction.h"
 #include "ECCrypto.h"
 #include "fixtures.h"
@@ -223,4 +224,30 @@ TEST_CASE("loadFromFile reports failure when an entry cannot be imported",
 
     wallet::Wallet loaded;
     REQUIRE_FALSE(loaded.loadFromFile(path, "pw"));
+}
+
+TEST_CASE("a wallet-signed transaction is accepted by the chain",
+          "[unit][wallet]") {
+    // The contract the CLI leans on once it signs from the wallet instead of
+    // a key derived from the sender's name: what the wallet signs must pass
+    // Transaction::isValid and reach the mempool.
+    test_support::MinedChainFixture f;
+
+    wallet::Wallet w;
+    const std::string address = w.generateNewAddress();
+    REQUIRE_FALSE(address.empty());
+    REQUIRE(w.getDefaultAddress() == address);
+
+    f.seedFunds(address, 100.0, "miner_1");
+
+    auto tx = std::make_shared<Transaction>(address, "receiver", 30.0);
+    REQUIRE(w.signTransaction(*tx, address));
+    REQUIRE(tx->isValid());
+
+    f.chain.addTransaction(tx);
+    REQUIRE(f.chain.getPendingTransactions().size() == 1);
+
+    f.chain.minePendingTransactions("miner_1");
+    REQUIRE(f.chain.getBalance(address) == 70.0);
+    REQUIRE(f.chain.getBalance("receiver") == 30.0);
 }

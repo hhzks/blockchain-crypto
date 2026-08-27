@@ -77,20 +77,22 @@ cmake --build build --target blockchain
 The menu drives the chain and the P2P node:
 
 ```text
-1.  Add Transaction        7.  Load Blockchain
-2.  Mine Block             8.  Start P2P Node
-3.  Check Balance          9.  Stop P2P Node
-4.  Display Blockchain     10. Connect to Peer
-5.  Validate Blockchain    11. Show Connected Peers
-6.  Save Blockchain        12. Request Blockchain Sync
-0.  Exit                   13. P2P Node Status
+1.  Add Transaction        8.  Create New Address    14. Start P2P Node
+2.  Mine Block             9.  Import Private Key    15. Stop P2P Node
+3.  Check Balance          10. List Addresses        16. Connect to Peer
+4.  Display Blockchain     11. Select Address        17. Show Connected Peers
+5.  Validate Blockchain    12. Save Wallet           18. Request Blockchain Sync
+6.  Save Blockchain        13. Load Wallet           19. P2P Node Status
+7.  Load Blockchain        0.  Exit
 ```
 
-For the demo, "Add Transaction" derives a deterministic keypair from the sender
-name and transacts from the address that key actually controls (so the signed
-transaction passes verification). Note that a freshly started chain has no
-funds, so a transaction is admitted to the mempool only once its sender has a
-balance.
+"Add Transaction" signs with the wallet's selected address, so create or load
+one first; "Mine Block" offers that address as the default reward target.
+Keys live in memory until "Save Wallet" writes an encrypted keystore, and
+"Load Wallet" needs the password that wrote it. Passwords are not echoed.
+
+A first block can be mined with nothing pending — the reward alone is what
+puts the first coins into an address, and everything else follows from that.
 
 ## Tests
 

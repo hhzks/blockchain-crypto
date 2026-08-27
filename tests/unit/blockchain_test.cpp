@@ -466,3 +466,19 @@ TEST_CASE("balances stay correct across every path that appends a block",
     REQUIRE(loaded.getBalance("bob") == 25.0);
     REQUIRE(loaded.getBalance("carol") == 7.0);
 }
+
+TEST_CASE("mining an empty pool still produces a rewarded block",
+          "[unit][blockchain]") {
+    // A fresh chain has nothing pending, so refusing to mine an empty pool
+    // left no way to mint a first reward: no address could ever be funded and
+    // therefore no transaction could ever be afforded. Miners mine empty
+    // blocks; that is how the first coins exist.
+    Blockchain bc(2, 50.0);
+    const size_t height = bc.getChainSize();
+
+    bc.minePendingTransactions("miner_1");
+
+    REQUIRE(bc.getChainSize() == height + 1);
+    REQUIRE(bc.getBalance("miner_1") == 50.0);
+    REQUIRE(bc.isChainValid());
+}

@@ -71,9 +71,12 @@ void Blockchain::addTransaction(std::shared_ptr<Transaction> transaction) {
 void Blockchain::minePendingTransactions(const std::string& reward_address) {
     std::scoped_lock lock(chain_mutex);
 
+    // An empty pool is mined anyway, for the reward alone. Refusing left a
+    // fresh chain with no way to mint a first reward, so no address could ever
+    // be funded and no transaction could ever be afforded.
     if (pending_transactions.empty()) {
-        std::cout << "No pending transactions to mine!" << std::endl;
-        return;
+        std::cout << "No pending transactions; mining for the reward only."
+                  << std::endl;
     }
     
     int required_difficulty = calculateRequiredDifficulty();
