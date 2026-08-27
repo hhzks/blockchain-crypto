@@ -131,3 +131,123 @@ TEST_CASE("randomScalar draws distinct values inside [1, N-1]",
 
     REQUIRE(seen.size() == 16);
 }
+
+namespace {
+
+// A valid signature over `message`, so the range checks below are the only
+// thing standing between a tampered copy and acceptance.
+struct SignedFixture {
+    std::unique_ptr<ECCrypto::KeyPair> kp;
+    ECCrypto::PublicKey pub{};
+    ECCrypto::Hash hash{};
+    ECCrypto::Signature sig{};
+
+    SignedFixture() {
+        kp = ECCrypto::keyPairFromPrivateKeyHex(test_vectors::fixture_priv_hex);
+        pub = ECCrypto::compressPublicKey(kp->public_key);
+        hash = ECCrypto::sha256Hash("a message worth signing");
+        sig = ECCrypto::signHash(hash, kp->private_key);
+    }
+};
+
+} // namespace
+
+TEST_CASE("verifySignature accepts an untampered signature", "[unit][eccrypto]") {
+    SignedFixture f;
+    REQUIRE(ECCrypto::verifySignature(f.hash, f.sig, f.pub));
+}
+
+TEST_CASE("verifySignature rejects R at the point at infinity",
+          "[unit][eccrypto]") {
+    // pointAtInfinity() is built as (0, 0) and getX() returns that 0 without
+    // consulting is_infinity, so "computed R is the point at infinity" reads
+    // as "R.x == 0". Choosing s = e*x makes sG - eP exactly infinity, and the
+    // comparison against R.x = 0 then succeeds on a signature whose R is not a
+    // point at all.
+    SignedFixture f;
+
+    uint8_t rx_bytes[32]{};                 // R.x = 0
+    uint8_t pubx_bytes[32];
+    ECCrypto::bigIntToBytes32(f.kp->public_key.getX(), pubx_bytes);
+
+    std::vector<uint8_t> to_hash;
+    to_hash.insert(to_hash.end(), std::begin(rx_bytes), std::end(rx_bytes));
+    to_hash.insert(to_hash.end(), std::begin(pubx_bytes), std::end(pubx_bytes));
+    to_hash.insert(to_hash.end(), f.hash.begin(), f.hash.end());
+
+    ECCrypto::Hash e_hash = ECCrypto::sha256Hash(to_hash.data(), to_hash.size());
+    BigInt e = ECCrypto::bytes32ToBigInt(e_hash.data()) % ECCrypto::secp256k1::N;
+    BigInt s = (e * f.kp->private_key) % ECCrypto::secp256k1::N;
+
+    ECCrypto::Signature forged{};
+    ECCrypto::bigIntToBytes32(s, forged.data() + 32);   // R.x stays zero
+
+    REQUIRE_FALSE(ECCrypto::verifySignature(f.hash, forged, f.pub));
+}
+
+TEST_CASE("verifySignature rejects out-of-range components",
+          "[unit][eccrypto]") {
+    // Hygiene rather than exploits: the arithmetic happens to reject these
+    // today, but the invariant belongs where it is stated.
+    SignedFixture f;
+
+    SECTION("all-zero signature") {
+        // signatureFromHex returns exactly this when the hex length is wrong,
+        // so (0, 0) is a reachable input, not a hypothetical one.
+        ECCrypto::Signature zero{};
+        REQUIRE_FALSE(ECCrypto::verifySignature(f.hash, zero, f.pub));
+    }
+
+    SECTION("s = 0") {
+        ECCrypto::Signature sig = f.sig;
+        std::fill(sig.begin() + 32, sig.end(), uint8_t{0});
+        REQUIRE_FALSE(ECCrypto::verifySignature(f.hash, sig, f.pub));
+    }
+
+    SECTION("s = N") {
+        ECCrypto::Signature sig = f.sig;
+        ECCrypto::bigIntToBytes32(ECCrypto::secp256k1::N, sig.data() + 32);
+        REQUIRE_FALSE(ECCrypto::verifySignature(f.hash, sig, f.pub));
+    }
+
+    SECTION("R.x = P") {
+        ECCrypto::Signature sig = f.sig;
+        ECCrypto::bigIntToBytes32(ECCrypto::secp256k1::P, sig.data());
+        REQUIRE_FALSE(ECCrypto::verifySignature(f.hash, sig, f.pub));
+    }
+}
+
+TEST_CASE("decompressPublicKey rejects an unreduced x-coordinate",
+          "[unit][eccrypto]") {
+    // x = 1 is on the curve, and it is small enough that x + P still fits in
+    // 32 bytes. Both encodings therefore decompress; storing x unreduced makes
+    // them behave identically in arithmetic while comparing unequal and
+    // deriving different addresses.
+    ECCrypto::PublicKey reduced{};
+    reduced[0] = ECCrypto::COMPRESSED_EVEN_PREFIX;
+    ECCrypto::bigIntToBytes32(BigInt(1), reduced.data() + 1);
+
+    ECCrypto::PublicKey unreduced{};
+    unreduced[0] = ECCrypto::COMPRESSED_EVEN_PREFIX;
+    ECCrypto::bigIntToBytes32(BigInt(1) + ECCrypto::secp256k1::P,
+                              unreduced.data() + 1);
+
+    REQUIRE(ECCrypto::isValidPublicKey(reduced));
+
+    REQUIRE(ECCrypto::decompressPublicKey(unreduced).isPointAtInfinity());
+    REQUIRE_FALSE(ECCrypto::isValidPublicKey(unreduced));
+}
+
+TEST_CASE("signHash refuses an out-of-range private key", "[unit][eccrypto]") {
+    ECCrypto::Hash hash = ECCrypto::sha256Hash("anything");
+
+    // Signing with 0 produced a signature over the point at infinity.
+    ECCrypto::Signature zero_key = ECCrypto::signHash(hash, BigInt(0));
+    REQUIRE(std::all_of(zero_key.begin(), zero_key.end(),
+                        [](uint8_t b) { return b == 0; }));
+
+    ECCrypto::Signature order_key =
+        ECCrypto::signHash(hash, ECCrypto::secp256k1::N);
+    REQUIRE(std::all_of(order_key.begin(), order_key.end(),
+                        [](uint8_t b) { return b == 0; }));
+}

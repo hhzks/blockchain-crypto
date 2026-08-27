@@ -281,7 +281,24 @@ Signature signatureFromHex(const std::string& hex) {
 }
 
 Signature signHash(const Hash& hash, const BigInt& privateKey) {
+    if (privateKey <= 0 || privateKey >= secp256k1::N) {
+        return Signature{};
+    }
+    return signHash(hash, privateKey, G * privateKey);
+}
+
+Signature signHash(const Hash& hash, const BigInt& privateKey,
+                   const ECPoint& publicKey) {
     Signature result = {};
+
+    // Without this, signHash(hash, 0) signed over the point at infinity.
+    if (privateKey <= 0 || privateKey >= secp256k1::N) {
+        return result;
+    }
+
+    if (publicKey.isPointAtInfinity()) {
+        return result;
+    }
 
     // s = k + e*x, with e and R.x public, so recovering k recovers the private
     // key. The nonce must come from the OS CSPRNG, never from a userspace PRNG
@@ -290,37 +307,40 @@ Signature signHash(const Hash& hash, const BigInt& privateKey) {
 
     // R = k * G
     ECPoint R = G * k;
-    
-    // Get public key
-    ECPoint pubKey = G * privateKey;
-    
+
     // Compute e = SHA256(R.x || pubKey.x || hash)
     std::vector<uint8_t> toHash;
     uint8_t rxBytes[32], pubxBytes[32];
     bigIntToBytes32(R.getX(), rxBytes);
-    bigIntToBytes32(pubKey.getX(), pubxBytes);
-    
+    bigIntToBytes32(publicKey.getX(), pubxBytes);
+
     for (int i = 0; i < 32; i++) toHash.push_back(rxBytes[i]);
     for (int i = 0; i < 32; i++) toHash.push_back(pubxBytes[i]);
     for (int i = 0; i < 32; i++) toHash.push_back(hash[i]);
-    
+
     Hash eHash = sha256Hash(toHash.data(), toHash.size());
     BigInt e = bytes32ToBigInt(eHash.data()) % secp256k1::N;
-    
+
     // s = k + e * privateKey (mod N)
     BigInt s = (k + e * privateKey) % secp256k1::N;
     if (s < 0) s = s + secp256k1::N;
-    
+
     // Store R.x in first 32 bytes, s in last 32 bytes
     bigIntToBytes32(R.getX(), result.data());
     bigIntToBytes32(s, result.data() + 32);
-    
+
     return result;
 }
 
 Signature signMessage(const std::string& message, const BigInt& privateKey) {
     Hash hash = sha256Hash(message);
     return signHash(hash, privateKey);
+}
+
+Signature signMessage(const std::string& message, const BigInt& privateKey,
+                      const ECPoint& publicKey) {
+    Hash hash = sha256Hash(message);
+    return signHash(hash, privateKey, publicKey);
 }
 
 // Byte array versions of sign functions
@@ -338,6 +358,16 @@ bool verifySignature(const Hash& hash, const Signature& signature, const PublicK
     // Extract R.x and s from signature
     BigInt Rx = bytes32ToBigInt(signature.data());
     BigInt s = bytes32ToBigInt(signature.data() + 32);
+
+    // signatureFromHex hands back an all-zero Signature when the hex length is
+    // wrong, so (0, 0) reaches here in practice. s belongs to [1, N-1] and an
+    // x-coordinate to [1, P-1]; nothing outside those is a signature.
+    if (s <= 0 || s >= secp256k1::N) {
+        return false;
+    }
+    if (Rx <= 0 || Rx >= secp256k1::P) {
+        return false;
+    }
     
     // Decompress public key
     ECPoint P = decompressPublicKey(publicKey);
@@ -363,12 +393,24 @@ bool verifySignature(const Hash& hash, const Signature& signature, const PublicK
     ECPoint sG = G * s;
     ECPoint eP = P * e;
     
-    // Negate eP (negate y coordinate)
-    BigInt negY = secp256k1::P - eP.getY();
-    ECPoint negEP(eP.getX(), negY, secp256k1::P, secp256k1::A, secp256k1::B);
-    
+    // The five-argument constructor always clears is_infinity, so negating an
+    // infinite eP would produce the finite point (0, p), which is not on the
+    // curve, and the addition would proceed on it.
+    ECPoint negEP = eP;
+    if (!eP.isPointAtInfinity()) {
+        BigInt negY = secp256k1::P - eP.getY();
+        negEP = ECPoint(eP.getX(), negY, secp256k1::P, secp256k1::A, secp256k1::B);
+    }
+
     ECPoint computedR = sG + negEP;
-    
+
+    // getX() on the point at infinity returns the 0 it is built with, without
+    // consulting is_infinity, so comparing x-coordinates alone accepted
+    // "R is not a point" as "R.x == 0".
+    if (computedR.isPointAtInfinity()) {
+        return false;
+    }
+
     // Check if x-coordinates match
     return computedR.getX() == Rx;
 }
@@ -490,6 +532,13 @@ ECPoint decompressPublicKey(const PublicKey& compressedKey) {
     
     // Extract x-coordinate
     BigInt x = bytes32ToBigInt(compressedKey.data() + 1);
+
+    // x is stored unreduced below, so x and x + P would decompress to points
+    // that behave identically in arithmetic but compare unequal and derive
+    // different addresses. Only the reduced encoding is a public key.
+    if (x < 0 || x >= secp256k1::P) {
+        return G.pointAtInfinity();
+    }
     
     // Calculate y^2 = x^3 + ax + b (mod p)
     // For secp256k1: y^2 = x^3 + 7 (mod p) since a = 0

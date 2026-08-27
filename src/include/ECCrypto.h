@@ -85,8 +85,20 @@ std::unique_ptr<KeyPair> keyPairFromPrivateKey(const BigInt& private_key);
 std::unique_ptr<KeyPair> keyPairFromPrivateKeyHex(const std::string& private_key_hex);
 
 Signature signHash(const Hash& hash, const BigInt& private_key);
+// Overloads taking the already-derived public key. Signing needs P.x for the
+// challenge hash, and callers that just built a keypair would otherwise pay
+// for a second full scalar multiplication to recompute it.
+Signature signHash(const Hash& hash, const BigInt& private_key, const ECPoint& public_key);
+// Overloads taking the already-derived public key. Signing needs P.x for the
+// challenge hash, and callers that just built a keypair would otherwise pay
+// for a second full scalar multiplication to recompute it.
+Signature signHash(const Hash& hash, const BigInt& private_key, const ECPoint& public_key);
 Signature signHash(const Hash& hash, const PrivateKey& private_key);
 Signature signMessage(const std::string& message, const BigInt& private_key);
+Signature signMessage(const std::string& message, const BigInt& private_key,
+                      const ECPoint& public_key);
+Signature signMessage(const std::string& message, const BigInt& private_key,
+                      const ECPoint& public_key);
 Signature signMessage(const std::string& message, const PrivateKey& private_key);
 
 bool verifySignature(const Hash& hash, const Signature& signature, const PublicKey& public_key);

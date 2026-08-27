@@ -27,17 +27,25 @@ bool Transaction::signTransaction(const ECCrypto::PrivateKey& private_key) {
     }
     
     try {
+        // Derive the keypair first and sign with the public key it already
+        // computed: signing needs P.x for the challenge hash, and letting it
+        // recompute G*x costs a second full scalar multiplication.
+        BigInt priv = ECCrypto::bytes32ToBigInt(private_key.data());
+        auto kp = ECCrypto::keyPairFromPrivateKey(priv);
+        if (!kp) {
+            std::println(stderr, "Could not derive keypair for signing");
+            return false;
+        }
+
         std::string tx_data = getTransactionData();
-        ECCrypto::Signature sig = ECCrypto::signMessage(tx_data, private_key);
+        ECCrypto::Signature sig =
+            ECCrypto::signMessage(tx_data, priv, kp->public_key);
         signature = ECCrypto::signatureToHex(sig);
         // Attach the sender's public key so the transaction can be verified
         // downstream from the address alone. deriveAddress(pubkey) == sender is
         // enforced in isValid(). The key is NOT part of the signed data.
-        BigInt priv = ECCrypto::bytes32ToBigInt(private_key.data());
-        auto kp = ECCrypto::keyPairFromPrivateKey(priv);
-        if (kp) {
-            sender_pubkey = kp->public_key_hex;
-        }
+        sender_pubkey = kp->public_key_hex;
+
         std::println(stderr, "Transaction signed successfully");
         return true;
         
