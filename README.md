@@ -11,7 +11,7 @@ wallet key management, on-disk persistence, and peer-to-peer node connection.
   (`deriveAddress(pubkey) == sender`) **and** that the signature verifies (so a transaction proves the sender authorized it).
 - **Blocks** with Merkle roots, previous-hash linkage, and proof-of-work.
 - **Mining** with automatic difficulty adjustment (retargets every 10 blocks
-  toward a target block time) and a mining reward.
+  toward a 30-second target block time) and a mining reward.
 - **Chain validation** end to end (`isChainValid`), plus `addBlock()` for
   validating and appending a block received from a peer.
 - **Wallets**: keypair generation/import, address derivation, transaction
@@ -140,6 +140,17 @@ ctest --test-dir build --output-on-failure
   difficulty target; difficulty retargets on a fixed interval. A block can be
   mined with an empty mempool, for the reward alone — that is how the first
   coins come into existence.
+- **Peer identity.** A peer is identified by the listen port it advertises in
+  its handshake, not by the ephemeral source port an inbound socket arrives on,
+  so gossiped addresses are dialable and a node that both dials and is dialled
+  by the same peer keeps one connection. A handshake advertising port 0, an
+  out-of-range port, or the node id of an already-connected peer is refused.
+- **Syncing.** A node asks its best-known peer for the blocks it is missing.
+  The request is tracked with a deadline and abandoned if that peer never
+  answers, disconnects, or reports an error, so a silent peer cannot wedge
+  syncing for the life of the process. Defaults: 25 peers, a 30s ping interval,
+  a 90s peer timeout, a 60s sync interval and a 30s sync timeout, all settable
+  through `P2PConfig`.
 - **Threading.** The P2P node runs four threads and calls into the chain from
   its receiver thread while the CLI drives the same object, so `Blockchain` is
   internally synchronised: every public method takes a recursive mutex and the
