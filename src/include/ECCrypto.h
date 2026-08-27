@@ -6,6 +6,7 @@
 #include <vector>
 #include <memory>
 #include <array>
+#include <cstdint>
 
 namespace ECCrypto {
 
@@ -69,6 +70,15 @@ struct KeyPair {
     KeyPair();
     KeyPair(const BigInt& priv_key, const ECPoint& pub_key);
 };
+
+// Fills `size` bytes from the operating system CSPRNG (BCryptGenRandom on
+// Windows, /dev/urandom elsewhere). Throws std::runtime_error if the OS cannot
+// supply entropy: there is no safe fallback for key material.
+void secureRandomBytes(uint8_t* output, size_t size);
+
+// A uniformly random scalar in [1, N-1], drawn by rejection sampling. Reducing
+// a 256-bit draw modulo N instead would bias the low end of the range.
+BigInt randomScalar();
 
 std::unique_ptr<KeyPair> generateKeyPair();
 std::unique_ptr<KeyPair> keyPairFromPrivateKey(const BigInt& private_key);

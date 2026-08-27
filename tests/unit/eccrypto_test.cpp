@@ -1,5 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
+#include <cstring>
+#include <set>
+#include <string>
 #include "ECCrypto.h"
 #include "bigint.h"
 #include "vectors.h"
@@ -97,4 +100,34 @@ TEST_CASE("hexToBytes rejects odd-length and oversized input", "[unit][eccrypto]
     REQUIRE(ECCrypto::hexToBytes("abc", out, sizeof(out)) == 0);
     REQUIRE(ECCrypto::hexToBytes("0011223344", out, sizeof(out)) == 0);
     REQUIRE(ECCrypto::hexToBytes("", out, sizeof(out)) == 0);
+}
+
+TEST_CASE("secureRandomBytes fills the whole buffer and varies per call",
+          "[unit][eccrypto]") {
+    uint8_t first[32];
+    uint8_t second[32];
+    std::memset(first, 0xAA, sizeof first);
+    std::memset(second, 0xAA, sizeof second);
+
+    ECCrypto::secureRandomBytes(first, sizeof first);
+    ECCrypto::secureRandomBytes(second, sizeof second);
+
+    // An untouched tail would still hold the sentinel.
+    REQUIRE_FALSE(std::all_of(std::begin(first), std::end(first),
+                              [](uint8_t b) { return b == 0xAA; }));
+    REQUIRE(std::memcmp(first, second, sizeof first) != 0);
+}
+
+TEST_CASE("randomScalar draws distinct values inside [1, N-1]",
+          "[unit][eccrypto]") {
+    std::set<std::string> seen;
+
+    for (int i = 0; i < 16; i++) {
+        BigInt k = ECCrypto::randomScalar();
+        REQUIRE(k > 0);
+        REQUIRE(k < ECCrypto::secp256k1::N);
+        seen.insert(k.to_string());
+    }
+
+    REQUIRE(seen.size() == 16);
 }

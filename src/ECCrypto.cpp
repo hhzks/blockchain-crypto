@@ -1,8 +1,17 @@
 #include "include/ECCrypto.h"
 #include "include/sha.h"
 #include "include/bigint.h"
-#include <random>
 #include <iostream>
+#include <stdexcept>
+
+#ifdef _WIN32
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <bcrypt.h>
+#else
+    #include <fstream>
+#endif
+
 #include <iomanip>
 #include <sstream>
 #include <cstring>
@@ -86,30 +95,50 @@ ECPoint ECPoint::operator*=(const BigInt& scalar){
     return *this;
 }
 
+void secureRandomBytes(uint8_t* output, size_t size) {
+    if (size == 0) {
+        return;
+    }
+
+#ifdef _WIN32
+    NTSTATUS status = BCryptGenRandom(nullptr, output, static_cast<ULONG>(size),
+                                      BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (status != 0) {
+        throw std::runtime_error("secureRandomBytes: BCryptGenRandom failed");
+    }
+#else
+    std::ifstream urandom("/dev/urandom", std::ios::binary);
+    if (!urandom.read(reinterpret_cast<char*>(output),
+                      static_cast<std::streamsize>(size))) {
+        throw std::runtime_error("secureRandomBytes: /dev/urandom unavailable");
+    }
+#endif
+}
+
+BigInt randomScalar() {
+    uint8_t bytes[PRIVATE_KEY_SIZE];
+
+    // A draw outside [1, N-1] has probability under 2^-128, so this loop
+    // effectively never runs twice; the bound is only there so a broken
+    // entropy source fails loudly instead of spinning.
+    for (int attempt = 0; attempt < 128; attempt++) {
+        secureRandomBytes(bytes, sizeof bytes);
+        BigInt candidate = bytes32ToBigInt(bytes);
+
+        if (candidate > 0 && candidate < secp256k1::N) {
+            return candidate;
+        }
+    }
+
+    throw std::runtime_error("randomScalar: no valid scalar drawn");
+}
+
 std::unique_ptr<ECCrypto::KeyPair> generateKeyPair(){
-    std::random_device rd;
-    std::mt19937_64 gen(rd());
-    std::uniform_int_distribution<unsigned long long> dis;
-        
-    BigInt private_key = 0;
-    std::string priv_str;
-        
-    // Generate a random 256-bit private key
-    for (int i = 0; i < 4; i++) {
-        unsigned long long rand_val = dis(gen);
-        std::stringstream ss;
-        ss << std::hex << rand_val;
-        priv_str += ss.str();
-    }
-        
-    private_key = BigInt(priv_str, 16);
-    private_key = private_key % ECCrypto::secp256k1::N;
-        
-    if (private_key == 0) {
-        private_key = 1;
-    }
-        
-    return keyPairFromPrivateKey(private_key);
+    // 32 bytes straight from the OS CSPRNG. The previous version seeded a
+    // std::mt19937_64 from a single 32-bit std::random_device draw and
+    // assembled the key from unpadded hex, capping every key this program ever
+    // produced at 2^32 possibilities and shortening it at random.
+    return keyPairFromPrivateKey(randomScalar());
 }
 
 std::unique_ptr<KeyPair> keyPairFromPrivateKey(const BigInt& priv_key) {
@@ -253,23 +282,12 @@ Signature signatureFromHex(const std::string& hex) {
 
 Signature signHash(const Hash& hash, const BigInt& privateKey) {
     Signature result = {};
-    
-    
-    std::random_device rd;
-    std::mt19937_64 gen(rd());
-    std::uniform_int_distribution<unsigned long long> dis;
-    
-    std::string k_str;
-    for (int i = 0; i < 4; i++) {
-        unsigned long long rand_val = dis(gen);
-        std::stringstream ss;
-        ss << std::hex << rand_val;
-        k_str += ss.str();
-    }
-    
-    BigInt k = BigInt(k_str, 16) % secp256k1::N;
-    if (k == 0) k = 1;
-    
+
+    // s = k + e*x, with e and R.x public, so recovering k recovers the private
+    // key. The nonce must come from the OS CSPRNG, never from a userspace PRNG
+    // whose whole state is derivable from 32 bits of seed.
+    BigInt k = randomScalar();
+
     // R = k * G
     ECPoint R = G * k;
     
