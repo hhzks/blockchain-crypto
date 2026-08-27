@@ -308,3 +308,46 @@ TEST_CASE("loadFromFile rejects a chain whose blocks do not validate",
     Blockchain loaded(2, 50.0);
     REQUIRE_FALSE(loaded.loadFromFile(path));
 }
+
+TEST_CASE("addTransaction counts pending spends against the sender's balance",
+          "[unit][blockchain]") {
+    MinedChainFixture f;
+    KeyPairFixture alice;
+    f.seedFunds(alice.address(), 100.0, "miner_1");
+
+    // Two 80-coin sends from a 100-coin balance: the second is only affordable
+    // if the first one in the pool is ignored.
+    REQUIRE(f.chain.getBalance(alice.address()) == 100.0);
+    f.chain.addTransaction(alice.signedTx("bob", 80.0));
+    f.chain.addTransaction(alice.signedTx("carol", 80.0));
+
+    REQUIRE(f.chain.getPendingTransactions().size() == 1);
+
+    f.chain.minePendingTransactions("miner_1");
+    REQUIRE(f.chain.getBalance(alice.address()) == 20.0);
+}
+
+TEST_CASE("addBlock rejects a block replaying an already-mined transaction",
+          "[unit][blockchain]") {
+    MinedChainFixture f;
+    KeyPairFixture alice;
+    f.seedFunds(alice.address(), 100.0, "miner_1");
+
+    auto tx = alice.signedTx("bob", 25.0);
+    f.chain.addTransaction(tx);
+    f.chain.minePendingTransactions("miner_1");
+    const double bob_balance = f.chain.getBalance("bob");
+
+    // The signature still verifies and the proof of work is real, so only a
+    // duplicate check keeps the peer from crediting bob twice.
+    auto tip = f.chain.getLatestBlock();
+    auto replay = std::make_shared<Block>(
+        static_cast<int>(f.chain.getChainSize()), tip->getHash(),
+        f.chain.calculateRequiredDifficulty());
+    replay->addTransaction(tx);
+    replay->addTransaction(std::make_shared<Transaction>("system", "miner_2", 50.0));
+    replay->mineBlock();
+
+    REQUIRE_FALSE(f.chain.addBlock(replay));
+    REQUIRE(f.chain.getBalance("bob") == bob_balance);
+}

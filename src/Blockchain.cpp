@@ -41,10 +41,17 @@ void Blockchain::addTransaction(std::shared_ptr<Transaction> transaction) {
     }
     
     if (transaction->getSender() != "system") {
+        // getBalance only sums mined history, so without the pending outflow a
+        // sender could queue the same funds any number of times and
+        // minePendingTransactions would pack every copy into one block.
         double balance = getBalance(transaction->getSender());
-        if (balance < transaction->getAmount()) {
-            std::cout << "Transaction rejected: Insufficient balance. Balance: " 
-                      << balance << ", Required: " << transaction->getAmount() << std::endl;
+        double pending_outflow = pendingOutflow(transaction->getSender());
+        double available = balance - pending_outflow;
+
+        if (available < transaction->getAmount()) {
+            std::cout << "Transaction rejected: Insufficient balance. Balance: "
+                      << balance << ", already pending: " << pending_outflow
+                      << ", Required: " << transaction->getAmount() << std::endl;
             return;
         }
     }
@@ -134,6 +141,18 @@ double Blockchain::getBalance(const std::string& address) {
     return balance;
 }
 
+double Blockchain::pendingOutflow(const std::string& address) const {
+    double outflow = 0.0;
+
+    for (const auto& transaction : pending_transactions) {
+        if (transaction->getSender() == address) {
+            outflow += transaction->getAmount();
+        }
+    }
+
+    return outflow;
+}
+
 bool Blockchain::isChainValid() const {
     if (chain.size() < 1) {
         return false;
@@ -206,6 +225,21 @@ bool Blockchain::addBlock(std::shared_ptr<Block> block) {
     if (!block->isValidWithDifficulty(required)) {
         std::cout << "Rejected block: failed validation" << std::endl;
         return false;
+    }
+
+    // A transaction already mined into this chain must not be replayed: its
+    // signature still verifies and the proof of work is real, so nothing else
+    // in the validation path stops a peer from crediting the receiver twice.
+    // System rewards are exempt because two blocks may legitimately pay the
+    // same miner the same amount in the same second, which is indistinguishable
+    // by hash while transactions carry no nonce (#27).
+    for (const auto& tx : block->getTransactions()) {
+        if (tx->getSender() != "system" && transactionExists(tx)) {
+            std::cout << "Rejected block: contains transaction already in the "
+                         "chain (" << tx->getSender() << " -> "
+                      << tx->getReceiver() << ")" << std::endl;
+            return false;
+        }
     }
 
     // Reward invariant: a legitimate block carries exactly one system
