@@ -306,4 +306,31 @@ std::string Wallet::toString() const {
     return result;
 }
 
+namespace utils {
+
+std::unique_ptr<Wallet> createRandomWallet() {
+    auto w = std::make_unique<Wallet>();
+    if (w->generateNewAddress().empty()) {
+        return nullptr;
+    }
+    return w;
+}
+
+bool isValidAddress(const std::string& address) {
+    // deriveAddress returns the first 20 bytes of SHA-256 as lowercase hex,
+    // so anything else -- wrong length, uppercase, an "0x" prefix -- is not an
+    // address this project produces.
+    // 20 bytes rendered as hex.
+    constexpr size_t address_length = 40;
+    if (address.size() != address_length) {
+        return false;
+    }
+
+    return std::all_of(address.begin(), address.end(), [](unsigned char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+    });
+}
+
+} // namespace utils
+
 } // namespace wallet

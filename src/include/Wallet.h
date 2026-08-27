@@ -47,10 +47,12 @@ public:
 };
 
 namespace utils {
+    // A wallet holding one freshly generated key, set as the default address.
     std::unique_ptr<Wallet> createRandomWallet();
+
+    // True for the output shape of ECCrypto::deriveAddress: exactly 40
+    // lowercase hex characters, with no "0x" prefix.
     bool isValidAddress(const std::string& address);
-    std::string generateMnemonic();
-    std::pair<ECCrypto::PrivateKey, ECCrypto::PublicKey> recoverFromMnemonic(const std::string& mnemonic);
 }
 
 }

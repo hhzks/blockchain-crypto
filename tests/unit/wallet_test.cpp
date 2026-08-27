@@ -109,3 +109,37 @@ TEST_CASE("a generated key signs a transaction that validates end to end",
     tx.setSenderPublicKey(w.getPublicKeyHex(address));
     REQUIRE(tx.isValid());
 }
+
+TEST_CASE("wallet::utils::isValidAddress accepts a derived address",
+          "[unit][wallet]") {
+    wallet::Wallet w;
+    const std::string address = w.generateNewAddress();
+
+    REQUIRE(wallet::utils::isValidAddress(address));
+}
+
+TEST_CASE("wallet::utils::isValidAddress rejects malformed addresses",
+          "[unit][wallet]") {
+    // deriveAddress returns the first 20 bytes of SHA-256 as lowercase hex.
+    REQUIRE_FALSE(wallet::utils::isValidAddress(""));
+    REQUIRE_FALSE(wallet::utils::isValidAddress(std::string(39, 'a')));
+    REQUIRE_FALSE(wallet::utils::isValidAddress(std::string(41, 'a')));
+    REQUIRE_FALSE(wallet::utils::isValidAddress(std::string(40, 'g')));
+    REQUIRE_FALSE(wallet::utils::isValidAddress(std::string(40, 'A')));
+    REQUIRE_FALSE(wallet::utils::isValidAddress("0x" + std::string(40, 'a')));
+}
+
+TEST_CASE("wallet::utils::createRandomWallet yields a usable default address",
+          "[unit][wallet]") {
+    auto w = wallet::utils::createRandomWallet();
+    REQUIRE(w != nullptr);
+
+    const std::string address = w->getDefaultAddress();
+    REQUIRE(wallet::utils::isValidAddress(address));
+    REQUIRE(w->hasAddress(address));
+    REQUIRE(w->getAllAddresses().size() == 1);
+
+    // Two wallets must not share a key.
+    auto other = wallet::utils::createRandomWallet();
+    REQUIRE(other->getDefaultAddress() != address);
+}
