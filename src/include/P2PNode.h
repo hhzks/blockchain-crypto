@@ -171,6 +171,9 @@ struct P2PConfig {
     int64_t ping_interval = 30000;
     int64_t peer_timeout = 90000;
     int64_t sync_interval = 60000;
+    // How long an outstanding GET_BLOCKS may go unanswered before the sync is
+    // abandoned and another peer can be tried.
+    int64_t sync_timeout = 30000;
     bool enable_logging = true;
     std::vector<std::string> seed_nodes;
 };
@@ -199,6 +202,13 @@ private:
     std::jthread ping_thread;
     std::jthread sync_thread;
     
+    // An outstanding GET_BLOCKS: which peer it went to and when we give up on
+    // it. `syncing` alone was a one-way latch -- nothing cleared it if the
+    // peer never answered, errored, or vanished.
+    mutable std::mutex sync_mutex;
+    std::string sync_peer;
+    int64_t sync_deadline = 0;
+
     std::condition_variable stop_condition;
     mutable std::mutex stop_mutex;
     
@@ -239,7 +249,12 @@ private:
     void pingPeers();
     void syncPeriodically();
     
+    void cancelSync(const std::string& reason);
+    void cancelSyncIfPeer(const std::string& peer_address, const std::string& reason);
+    void cancelStalledSync();
+
     void handleMessage(std::shared_ptr<Peer> peer, const Message& msg);
+    void handleError(std::shared_ptr<Peer> peer, const Message& msg);
     void handleHandshake(std::shared_ptr<Peer> peer, const Message& msg);
     void handlePing(std::shared_ptr<Peer> peer, const Message& msg);
     void handlePong(std::shared_ptr<Peer> peer, const Message& msg);

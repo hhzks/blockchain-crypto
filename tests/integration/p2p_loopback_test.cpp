@@ -93,6 +93,26 @@ bool sendAll(SocketType sock, const uint8_t* data, size_t len) {
     return true;
 }
 
+// Polls `pred` until it holds or `timeout` elapses.
+template <typename Pred>
+bool waitUntil(Pred pred, std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (pred()) return true;
+        std::this_thread::sleep_for(20ms);
+    }
+    return pred();
+}
+
+// Handshakes as a peer claiming `height` blocks, which makes the node start
+// syncing from us.
+bool sendHandshake(SocketType sock, const std::string& node_id, int64_t height) {
+    auto frame = p2p::Message(p2p::MessageType::HANDSHAKE,
+                              node_id + "|8333|" + std::to_string(height) + "|1.0.0",
+                              node_id).serialize();
+    return sendAll(sock, frame.data(), frame.size());
+}
+
 } // namespace
 
 TEST_CASE("A malformed peer message drops the peer, not the node",
@@ -208,4 +228,83 @@ TEST_CASE("stop() returns promptly instead of sleeping out an interval",
     // ping_interval is 30s and sync_interval 60s by default; a missed wakeup
     // makes stop() wait one of them out.
     REQUIRE(elapsed < 2s);
+}
+
+TEST_CASE("an unanswered GET_BLOCKS does not wedge sync forever",
+          "[integration][p2p]") {
+    Blockchain chain{2, 50.0};
+    p2p::P2PConfig cfg;
+    cfg.listen_port = 0;
+    cfg.enable_logging = false;
+    cfg.sync_timeout = 500;
+    p2p::P2PNode node(&chain, cfg);
+    REQUIRE(node.start());
+
+    SocketType client = connectRaw(node.getActualListenPort());
+    REQUIRE(client != INVALID_SOCK);
+    REQUIRE(sendHandshake(client, "silent-peer", 9999));
+
+    const bool started = waitUntil([&] { return node.isSyncing(); }, 3s);
+    // Then say nothing at all: syncing must time out, not latch forever.
+    const bool cleared = started && waitUntil([&] { return !node.isSyncing(); }, 5s);
+
+    closesocket(client);
+    node.stop();
+
+    REQUIRE(started);
+    REQUIRE(cleared);
+}
+
+TEST_CASE("a peer disconnecting mid-sync clears the sync flag",
+          "[integration][p2p]") {
+    Blockchain chain{2, 50.0};
+    p2p::P2PConfig cfg;
+    cfg.listen_port = 0;
+    cfg.enable_logging = false;
+    cfg.sync_timeout = 60000;  // only the disconnect can explain a clear
+    p2p::P2PNode node(&chain, cfg);
+    REQUIRE(node.start());
+
+    SocketType client = connectRaw(node.getActualListenPort());
+    REQUIRE(client != INVALID_SOCK);
+    REQUIRE(sendHandshake(client, "vanishing-peer", 9999));
+
+    const bool started = waitUntil([&] { return node.isSyncing(); }, 3s);
+    closesocket(client);
+    const bool cleared = started && waitUntil([&] { return !node.isSyncing(); }, 5s);
+
+    node.stop();
+
+    REQUIRE(started);
+    REQUIRE(cleared);
+}
+
+TEST_CASE("an ERROR reply cancels the in-flight sync", "[integration][p2p]") {
+    Blockchain chain{2, 50.0};
+    p2p::P2PConfig cfg;
+    cfg.listen_port = 0;
+    cfg.enable_logging = false;
+    cfg.sync_timeout = 60000;  // only the ERROR reply can explain a clear
+    p2p::P2PNode node(&chain, cfg);
+    REQUIRE(node.start());
+
+    SocketType client = connectRaw(node.getActualListenPort());
+    REQUIRE(client != INVALID_SOCK);
+    REQUIRE(sendHandshake(client, "grumpy-peer", 9999));
+
+    const bool started = waitUntil([&] { return node.isSyncing(); }, 3s);
+
+    // handleGetBlocks answers an out-of-range request with exactly this, and
+    // nothing used to handle it.
+    auto err = p2p::Message(p2p::MessageType::ERROR_MSG, "Invalid block range",
+                            "grumpy-peer").serialize();
+    REQUIRE(sendAll(client, err.data(), err.size()));
+
+    const bool cleared = started && waitUntil([&] { return !node.isSyncing(); }, 5s);
+
+    closesocket(client);
+    node.stop();
+
+    REQUIRE(started);
+    REQUIRE(cleared);
 }
