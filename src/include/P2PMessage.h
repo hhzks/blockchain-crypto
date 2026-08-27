@@ -11,6 +11,7 @@
 #include "Block.h"
 #include "utils.h"
 #include "Transaction.h"
+#include "money.h"
 
 namespace p2p {
 
@@ -328,10 +329,11 @@ public:
         for (const auto& tx : txs) {
             oss << "|" << tx->getSender()
                 << "," << tx->getReceiver()
-                << "," << std::format("{:.8f}", tx->getAmount())
+                << "," << tx->getAmount()
                 << "," << tx->getTimestamp()
                 << "," << tx->getSignature()
-                << "," << tx->getSenderPublicKey();
+                << "," << tx->getSenderPublicKey()
+                << "," << tx->getNonce();
         }
 
         return oss.str();
@@ -367,18 +369,20 @@ public:
 
             std::istringstream tx_stream(tx_data);
             std::string sender, receiver, sig, pubkey;
-            double amount;
+            money::Amount amount;
             long long tx_timestamp;
+            std::uint64_t tx_nonce;
 
             std::getline(tx_stream, sender, ',');
             std::getline(tx_stream, receiver, ',');
-            std::getline(tx_stream, token, ','); amount = std::stod(token);
+            std::getline(tx_stream, token, ','); amount = std::stoll(token);
             std::getline(tx_stream, token, ','); tx_timestamp = std::stoll(token);
             std::getline(tx_stream, sig, ',');
             std::getline(tx_stream, pubkey, ',');
+            std::getline(tx_stream, token, ','); tx_nonce = std::stoull(token);
 
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
-                                                    tx_timestamp, sig);
+                                                    tx_timestamp, sig, tx_nonce);
             tx->setSenderPublicKey(pubkey);
             txs.push_back(tx);
         }
@@ -397,28 +401,31 @@ public:
         std::ostringstream oss;
         oss << tx.getSender() << "|"
             << tx.getReceiver() << "|"
-            << std::format("{:.8f}", tx.getAmount()) << "|"
+            << tx.getAmount() << "|"
             << tx.getTimestamp() << "|"
             << tx.getSignature() << "|"
-            << tx.getSenderPublicKey();
+            << tx.getSenderPublicKey() << "|"
+            << tx.getNonce();
         return oss.str();
     }
 
     static std::shared_ptr<Transaction> deserialize(const std::string& data) {
         std::istringstream iss(data);
         std::string sender, receiver, sig, pubkey, token;
-        double amount;
+        money::Amount amount;
         long long timestamp;
+        std::uint64_t nonce;
 
         std::getline(iss, sender, '|');
         std::getline(iss, receiver, '|');
-        std::getline(iss, token, '|'); amount = std::stod(token);
+        std::getline(iss, token, '|'); amount = std::stoll(token);
         std::getline(iss, token, '|'); timestamp = std::stoll(token);
         std::getline(iss, sig, '|');
         std::getline(iss, pubkey, '|');
+        std::getline(iss, token, '|'); nonce = std::stoull(token);
 
         auto tx = std::make_shared<Transaction>(sender, receiver, amount,
-                                                timestamp, sig);
+                                                timestamp, sig, nonce);
         tx->setSenderPublicKey(pubkey);
         return tx;
     }

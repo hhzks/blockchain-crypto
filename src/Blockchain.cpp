@@ -9,11 +9,13 @@
 
 Blockchain::Blockchain() : difficulty(INITIAL_DIFFICULTY), mining_reward(INITIAL_MINING_REWARD) {
     chain.push_back(createGenesisBlock());
+    updateBalances();
 }
 
-Blockchain::Blockchain(int initial_difficulty, double initial_reward)
+Blockchain::Blockchain(int initial_difficulty, money::Amount initial_reward)
     : difficulty(initial_difficulty), mining_reward(initial_reward) {
     chain.push_back(createGenesisBlock());
+    updateBalances();
 }
 
 std::shared_ptr<Block> Blockchain::createGenesisBlock() {
@@ -50,14 +52,15 @@ void Blockchain::addTransaction(std::shared_ptr<Transaction> transaction) {
         // getBalance only sums mined history, so without the pending outflow a
         // sender could queue the same funds any number of times and
         // minePendingTransactions would pack every copy into one block.
-        double balance = getBalance(transaction->getSender());
-        double pending_outflow = pendingOutflow(transaction->getSender());
-        double available = balance - pending_outflow;
+        money::Amount balance = getBalance(transaction->getSender());
+        money::Amount pending_outflow = pendingOutflow(transaction->getSender());
+        money::Amount available = balance - pending_outflow;
 
         if (available < transaction->getAmount()) {
             std::cout << "Transaction rejected: Insufficient balance. Balance: "
-                      << balance << ", already pending: " << pending_outflow
-                      << ", Required: " << transaction->getAmount() << std::endl;
+                      << money::format(balance) << ", already pending: "
+                      << money::format(pending_outflow) << ", Required: "
+                      << money::format(transaction->getAmount()) << std::endl;
             return;
         }
     }
@@ -69,9 +72,12 @@ void Blockchain::addTransaction(std::shared_ptr<Transaction> transaction) {
 void Blockchain::minePendingTransactions(const std::string& reward_address) {
     std::scoped_lock lock(chain_mutex);
 
+    // An empty pool is mined anyway, for the reward alone. Refusing left a
+    // fresh chain with no way to mint a first reward, so no address could ever
+    // be funded and no transaction could ever be afforded.
     if (pending_transactions.empty()) {
-        std::cout << "No pending transactions to mine!" << std::endl;
-        return;
+        std::cout << "No pending transactions; mining for the reward only."
+                  << std::endl;
     }
     
     int required_difficulty = calculateRequiredDifficulty();
@@ -94,7 +100,7 @@ void Blockchain::minePendingTransactions(const std::string& reward_address) {
     auto reward_tx = std::make_shared<Transaction>("system", reward_address, mining_reward);
     if (!new_block->addTransaction(reward_tx)) {
         std::cout << "Mining aborted: invalid mining reward transaction of "
-                  << mining_reward << " to '" << reward_address
+                  << money::format(mining_reward) << " to '" << reward_address
                   << "'. Pending transactions kept." << std::endl;
         return;
     }
@@ -135,30 +141,17 @@ bool Blockchain::validateBlockDifficulty(const std::shared_ptr<Block>& block) co
     return true;
 }
 
-double Blockchain::getBalance(const std::string& address) {
+money::Amount Blockchain::getBalance(const std::string& address) const {
     std::scoped_lock lock(chain_mutex);
 
-    double balance = 0.0;
-    
-    // Calculate balance by going through all transactions in all blocks
-    for (const auto& block : chain) {
-        for (const auto& transaction : block->getTransactions()) {
-            if (transaction->getReceiver() == address) {
-                balance += transaction->getAmount();
-            }
-            if (transaction->getSender() == address) {
-                balance -= transaction->getAmount();
-            }
-        }
-    }
-    
-    return balance;
+    auto it = balances.find(address);
+    return it != balances.end() ? it->second : money::Amount{0};
 }
 
-double Blockchain::pendingOutflow(const std::string& address) const {
+money::Amount Blockchain::pendingOutflow(const std::string& address) const {
     std::scoped_lock lock(chain_mutex);
 
-    double outflow = 0.0;
+    money::Amount outflow = 0;
 
     for (const auto& transaction : pending_transactions) {
         if (transaction->getSender() == address) {
@@ -274,8 +267,9 @@ bool Blockchain::addBlock(std::shared_ptr<Block> block) {
             system_tx_count++;
             if (tx->getAmount() != mining_reward) {
                 std::cout << "Rejected block: system reward amount "
-                          << tx->getAmount() << " does not match expected "
-                          << mining_reward << std::endl;
+                          << money::format(tx->getAmount())
+                          << " does not match expected "
+                          << money::format(mining_reward) << std::endl;
                 return false;
             }
         }
@@ -312,7 +306,7 @@ void Blockchain::printChain() const {
     std::cout << "=== BLOCKCHAIN ===" << std::endl;
     std::cout << "Chain length: " << chain.size() << " blocks" << std::endl;
     std::cout << "Difficulty: " << difficulty << std::endl;
-    std::cout << "Mining reward: " << mining_reward << std::endl;
+    std::cout << "Mining reward: " << money::format(mining_reward) << std::endl;
     std::cout << "Pending transactions: " << pending_transactions.size() << std::endl;
     std::cout << std::endl;
     
@@ -359,12 +353,13 @@ bool Blockchain::saveToFile(const std::string& filename) const {
             file << tx->getReceiver() << std::endl;
             // Fixed precision matching Transaction::calculateHash so the
             // reloaded amount reproduces the same hash.
-            file << std::format("{:.8f}", tx->getAmount()) << std::endl;
+            file << tx->getAmount() << std::endl;
             file << tx->getTimestamp() << std::endl;
             // "-" sentinel: an empty signature line would be skipped by
             // operator>> on load and corrupt the parse.
             file << (tx->getSignature().empty() ? "-" : tx->getSignature()) << std::endl;
             file << (tx->getSenderPublicKey().empty() ? "-" : tx->getSenderPublicKey()) << std::endl;
+            file << tx->getNonce() << std::endl;
         }
     }
 
@@ -392,13 +387,13 @@ bool Blockchain::loadFromFile(const std::string& filename) {
     };
 
     int file_difficulty = 0;
-    double file_reward = 0.0;
+    money::Amount file_reward = 0;
     size_t chain_size = 0;
 
     if (!(file >> file_difficulty >> file_reward)) {
         return fail("unreadable header (difficulty, mining reward)");
     }
-    if (!std::isfinite(file_reward) || file_reward <= 0) {
+    if (!money::isValidAmount(file_reward)) {
         return fail(std::format("invalid mining reward {}", file_reward));
     }
     if (!(file >> chain_size)) {
@@ -433,11 +428,12 @@ bool Blockchain::loadFromFile(const std::string& filename) {
 
         for (size_t j = 0; j < tx_count; j++) {
             std::string sender, receiver, signature, pubkey;
-            double amount = 0.0;
+            money::Amount amount = 0;
             long long tx_timestamp = 0;
+            std::uint64_t tx_nonce = 0;
 
             if (!(file >> sender >> receiver >> amount >> tx_timestamp
-                       >> signature >> pubkey)) {
+                       >> signature >> pubkey >> tx_nonce)) {
                 return fail(std::format("unreadable transaction {} in block {}", j, i));
             }
             if (signature == "-") {
@@ -448,7 +444,7 @@ bool Blockchain::loadFromFile(const std::string& filename) {
             }
 
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
-                                                    tx_timestamp, signature);
+                                                    tx_timestamp, signature, tx_nonce);
             tx->setSenderPublicKey(pubkey);
             txs.push_back(tx);
         }
@@ -503,7 +499,11 @@ void Blockchain::updateBalances() {
             // Credit receiver
             balances[transaction->getReceiver()] += transaction->getAmount();
             
-            // Debit sender (except for system transactions)
+            // "system" is the mint, not an account: a mining reward has no
+            // funding source to debit. This is now the only definition of the
+            // rule -- getBalance used to carry a second, subtly different one
+            // that debited "system" too, and the two could only agree while
+            // nothing read this map.
             if (transaction->getSender() != "system") {
                 balances[transaction->getSender()] -= transaction->getAmount();
             }

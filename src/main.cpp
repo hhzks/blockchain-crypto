@@ -2,13 +2,22 @@
 #include "include/Transaction.h"
 #include "include/P2PNode.h"
 #include "include/utils.h"
-#include "include/ECCrypto.h"
+#include "include/Wallet.h"
+#include "include/money.h"
 #include <iostream>
 #include <memory>
 #include <string>
 #include <chrono>
 #include <limits>
 #include <optional>
+
+#ifdef _WIN32
+    #include <conio.h>
+    #include <io.h>
+#else
+    #include <termios.h>
+    #include <unistd.h>
+#endif
 
 // Global P2P node pointer
 std::unique_ptr<p2p::P2PNode> p2pNode;
@@ -47,6 +56,17 @@ std::optional<double> promptDouble(const std::string& prompt) {
     return std::nullopt;
 }
 
+// Coin figures, entered as decimals and held as integer units.
+std::optional<money::Amount> promptAmount(const std::string& prompt) {
+    std::string line;
+    while (promptLine(prompt, line)) {
+        if (auto value = money::parse(line)) return value;
+        std::cout << "Please enter a positive amount with at most 8 decimal places."
+                  << std::endl;
+    }
+    return std::nullopt;
+}
+
 // A blank line takes the default when one is offered.
 std::optional<uint16_t> promptPort(const std::string& prompt,
                                    std::optional<uint16_t> default_port = std::nullopt) {
@@ -60,6 +80,50 @@ std::optional<uint16_t> promptPort(const std::string& prompt,
         std::cout << "Please enter a port between 1 and 65535." << std::endl;
     }
     return std::nullopt;
+}
+
+// Reads a line without echoing it. A keystore password typed in the clear
+// stays in the scrollback and in anything watching the terminal.
+bool promptPassword(const std::string& prompt, std::string& out) {
+    std::cout << prompt << std::flush;
+    out.clear();
+
+#ifdef _WIN32
+    // _getch reads the console, not stdin, so without this a redirected or
+    // piped run would block here forever.
+    if (!_isatty(_fileno(stdin))) {
+        return static_cast<bool>(std::getline(std::cin, out));
+    }
+
+    for (;;) {
+        const int ch = _getch();
+        if (ch == '\r' || ch == '\n') break;
+        if (ch == 3) return false;               // Ctrl-C
+        if (ch == 0 || ch == 224) { _getch(); continue; } // function/arrow key
+        if (ch == '\b') {
+            if (!out.empty()) out.pop_back();
+            continue;
+        }
+        out.push_back(static_cast<char>(ch));
+    }
+    std::cout << std::endl;
+    return true;
+#else
+    termios original{};
+    if (tcgetattr(STDIN_FILENO, &original) != 0) {
+        return static_cast<bool>(std::getline(std::cin, out)); // not a tty
+    }
+
+    termios quiet = original;
+    quiet.c_lflag &= ~static_cast<tcflag_t>(ECHO);
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &quiet);
+
+    const bool ok = static_cast<bool>(std::getline(std::cin, out));
+
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
+    std::cout << std::endl;
+    return ok;
+#endif
 }
 
 // Non-empty free text (an address, a filename).
@@ -83,17 +147,168 @@ void displayMenu() {
     std::cout << "5.  Validate Blockchain" << std::endl;
     std::cout << "6.  Save Blockchain" << std::endl;
     std::cout << "7.  Load Blockchain" << std::endl;
+    std::cout << "--- Wallet ---" << std::endl;
+    std::cout << "8.  Create New Address" << std::endl;
+    std::cout << "9.  Import Private Key" << std::endl;
+    std::cout << "10. List Addresses" << std::endl;
+    std::cout << "11. Select Address" << std::endl;
+    std::cout << "12. Save Wallet" << std::endl;
+    std::cout << "13. Load Wallet" << std::endl;
     std::cout << "--- P2P Network ---" << std::endl;
-    std::cout << "8. Start P2P Node" << std::endl;
-    std::cout << "9. Stop P2P Node" << std::endl;
-    std::cout << "10. Connect to Peer" << std::endl;
-    std::cout << "11. Show Connected Peers" << std::endl;
-    std::cout << "12. Request Blockchain Sync" << std::endl;
-    std::cout << "13. P2P Node Status" << std::endl;
+    std::cout << "14. Start P2P Node" << std::endl;
+    std::cout << "15. Stop P2P Node" << std::endl;
+    std::cout << "16. Connect to Peer" << std::endl;
+    std::cout << "17. Show Connected Peers" << std::endl;
+    std::cout << "18. Request Blockchain Sync" << std::endl;
+    std::cout << "19. P2P Node Status" << std::endl;
     std::cout << "-------------------" << std::endl;
     std::cout << "0.  Exit" << std::endl;
     std::cout << "Choice: ";
 }
+
+namespace {
+
+// Prints the wallet's addresses with their on-chain balance, marking the one
+// transactions are signed with.
+void listAddresses(const wallet::Wallet& w, const Blockchain& blockchain) {
+    const auto addresses = w.getAllAddresses();
+    if (addresses.empty()) {
+        std::cout << "Wallet is empty. Use 'Create New Address' or 'Load Wallet'."
+                  << std::endl;
+        return;
+    }
+
+    const std::string selected = w.getDefaultAddress();
+    std::cout << "Addresses (" << addresses.size() << "):" << std::endl;
+    for (const auto& address : addresses) {
+        std::cout << "  " << address
+                  << "  balance " << money::format(blockchain.getBalance(address))
+                  << (address == selected ? "  [selected]" : "")
+                  << std::endl;
+    }
+}
+
+void createAddress(wallet::Wallet& w) {
+    const std::string address = w.generateNewAddress();
+    if (address.empty()) {
+        std::cout << "Failed to generate an address." << std::endl;
+        return;
+    }
+
+    std::cout << "Created " << address << std::endl;
+    if (w.getDefaultAddress() == address) {
+        std::cout << "Selected it for signing." << std::endl;
+    }
+    std::cout << "Save the wallet to keep this key." << std::endl;
+}
+
+void importPrivateKey(wallet::Wallet& w) {
+    const auto priv_hex = promptText("Enter private key hex (64 chars): ");
+    if (!priv_hex) return;
+
+    if (!w.importPrivateKey(*priv_hex)) {
+        std::cout << "Import failed. Expecting 64 hex characters of a valid key."
+                  << std::endl;
+        return;
+    }
+
+    std::cout << "Imported. Wallet now holds " << w.getAllAddresses().size()
+              << " address(es)." << std::endl;
+}
+
+void selectAddress(wallet::Wallet& w) {
+    if (w.getAllAddresses().empty()) {
+        std::cout << "Wallet is empty." << std::endl;
+        return;
+    }
+
+    const auto address = promptText("Enter address to select: ");
+    if (!address) return;
+
+    if (!w.hasAddress(*address)) {
+        std::cout << "That address is not in this wallet." << std::endl;
+        return;
+    }
+
+    w.setDefaultAddress(*address);
+    std::cout << "Signing from " << *address << std::endl;
+}
+
+void saveWallet(const wallet::Wallet& w) {
+    if (w.getAllAddresses().empty()) {
+        std::cout << "Nothing to save: the wallet is empty." << std::endl;
+        return;
+    }
+
+    const auto filename = promptText("Enter filename to save wallet: ");
+    if (!filename) return;
+
+    std::string password;
+    if (!promptPassword("Password: ", password)) return;
+
+    std::string confirmation;
+    if (!promptPassword("Confirm password: ", confirmation)) return;
+
+    if (password != confirmation) {
+        std::cout << "Passwords do not match. Wallet not saved." << std::endl;
+        return;
+    }
+
+    if (w.saveToFile(*filename, password)) {
+        std::cout << "Wallet saved to " << *filename << std::endl;
+    } else {
+        std::cout << "Failed to save wallet." << std::endl;
+    }
+}
+
+void loadWallet(wallet::Wallet& w) {
+    const auto filename = promptText("Enter filename to load wallet: ");
+    if (!filename) return;
+
+    std::string password;
+    if (!promptPassword("Password: ", password)) return;
+
+    // A failed load leaves whatever the wallet already held untouched.
+    if (!w.loadFromFile(*filename, password)) {
+        std::cout << "Failed to load wallet (wrong password or corrupt file)."
+                  << std::endl;
+        return;
+    }
+
+    std::cout << "Loaded " << w.getAllAddresses().size() << " address(es)."
+              << std::endl;
+    if (!w.getDefaultAddress().empty()) {
+        std::cout << "Signing from " << w.getDefaultAddress() << std::endl;
+    }
+}
+
+void addTransaction(wallet::Wallet& w, Blockchain& blockchain) {
+    const std::string sender = w.getDefaultAddress();
+    if (sender.empty()) {
+        std::cout << "No address selected. Use 'Create New Address', "
+                     "'Import Private Key' or 'Load Wallet' first." << std::endl;
+        return;
+    }
+
+    std::cout << "Sending from " << sender
+              << " (balance " << money::format(blockchain.getBalance(sender))
+              << ")" << std::endl;
+
+    const auto receiver = promptText("Enter receiver address: ");
+    if (!receiver) return;
+    const auto amount = promptAmount("Enter amount: ");
+    if (!amount) return;
+
+    auto transaction = std::make_shared<Transaction>(sender, *receiver, *amount);
+    if (!w.signTransaction(*transaction, sender)) {
+        std::cout << "Failed to sign the transaction." << std::endl;
+        return;
+    }
+
+    blockchain.addTransaction(transaction);
+}
+
+} // namespace
 
 void setupP2PCallbacks(Blockchain& blockchain) {
     if (!p2pNode) return;
@@ -257,6 +472,10 @@ int main() {
     
     Blockchain blockchain;
 
+    // Keys live only in memory until "Save Wallet" writes an encrypted
+    // keystore; nothing is loaded from disk without a password.
+    wallet::Wallet user_wallet;
+
     auto shutdown = []() {
         if (p2pNode && p2pNode->isRunning()) {
             std::cout << "Stopping P2P node..." << std::endl;
@@ -284,46 +503,38 @@ int main() {
 
         switch (*parsed) {
             case 1: {
-                const auto sender = promptText("Enter sender address: ");
-                if (!sender) break;
-                const auto receiver = promptText("Enter receiver address: ");
-                if (!receiver) break;
-                const auto parsed_amount = promptDouble("Enter amount: ");
-                if (!parsed_amount) break;
-                const double amount = *parsed_amount;
-
-                // Demo key management: derive a deterministic private key from
-                // the sender name, then transact from the address that key
-                // actually controls. isValid() now binds the signature to
-                // deriveAddress(pubkey), so a free-text sender is rejected.
-                std::string demo_priv = utils::sha256(*sender + "_private_key");
-                auto demo_kp = ECCrypto::keyPairFromPrivateKeyHex(demo_priv);
-                if (!demo_kp) {
-                    std::cout << "Failed to derive a key for sender '" << *sender
-                              << "'" << std::endl;
-                    break;
-                }
-                std::cout << "Using address " << demo_kp->address
-                          << " for '" << *sender << "'" << std::endl;
-                auto transaction = std::make_shared<Transaction>(
-                    demo_kp->address, *receiver, amount);
-                transaction->signTransaction(demo_priv);
-                blockchain.addTransaction(transaction);
+                addTransaction(user_wallet, blockchain);
                 break;
             }
-            
+
             case 2: {
-                const auto minerAddress = promptText("Enter miner address: ");
-                if (!minerAddress) break;
-                blockchain.minePendingTransactions(*minerAddress);
+                // A blank line mines to the wallet's selected address, so the
+                // reward lands somewhere the operator can actually spend from.
+                const std::string selected = user_wallet.getDefaultAddress();
+                std::string line;
+                if (!promptLine(selected.empty()
+                                    ? "Enter miner address: "
+                                    : "Enter miner address [" + selected + "]: ",
+                                line)) {
+                    break;
+                }
+
+                const std::string miner = isBlank(line) ? selected : line;
+                if (miner.empty()) {
+                    std::cout << "Please enter a miner address." << std::endl;
+                    break;
+                }
+
+                blockchain.minePendingTransactions(miner);
                 break;
             }
 
             case 3: {
                 const auto address = promptText("Enter address to check: ");
                 if (!address) break;
-                double balance = blockchain.getBalance(*address);
-                std::cout << "Balance for " << *address << ": " << balance << std::endl;
+                const money::Amount balance = blockchain.getBalance(*address);
+                std::cout << "Balance for " << *address << ": "
+                          << money::format(balance) << std::endl;
                 break;
             }
             
@@ -354,31 +565,61 @@ int main() {
             
             
             case 8: {
+                createAddress(user_wallet);
+                break;
+            }
+
+            case 9: {
+                importPrivateKey(user_wallet);
+                break;
+            }
+
+            case 10: {
+                listAddresses(user_wallet, blockchain);
+                break;
+            }
+
+            case 11: {
+                selectAddress(user_wallet);
+                break;
+            }
+
+            case 12: {
+                saveWallet(user_wallet);
+                break;
+            }
+
+            case 13: {
+                loadWallet(user_wallet);
+                break;
+            }
+
+            case 14: {
                 startP2PNode(blockchain);
                 break;
             }
             
-            case 9: {
+            case 15: {
                 stopP2PNode();
                 break;
             }
             
-            case 10: {
+            case 16: {
                 connectToPeer();
                 break;
             }
             
-            case 11: {
+            case 17: {
                 showConnectedPeers();
                 break;
             }
             
-            case 12: {
+            case 18: {
                 requestSync();
                 break;
             }
             
-            case 13: {
+            case 19: {
                 showP2PStatus();
                 break;
             }

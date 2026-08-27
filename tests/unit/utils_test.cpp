@@ -21,16 +21,20 @@ TEST_CASE("sha256 is deterministic", "[unit][utils]") {
 }
 
 TEST_CASE("calculateMerkleRoot handles 0, 1, 2, 3, 4 tx cases", "[unit][utils]") {
+    // leaf  = SHA256(0x00 || tx_hash)
+    // node  = SHA256(0x01 || left_digest || right_digest)
+    // an unpaired node is promoted, not duplicated.
+    // The expected roots were computed independently in Python from that
+    // specification, not read back out of this implementation.
     REQUIRE(utils::calculateMerkleRoot({}) == utils::sha256(""));
-    REQUIRE(utils::calculateMerkleRoot({"deadbeef"}) == "deadbeef");
-    std::string two = utils::calculateMerkleRoot({"a", "b"});
-    REQUIRE(two == utils::sha256("ab"));
-    std::string three = utils::calculateMerkleRoot({"a", "b", "c"});
-    std::string ab = utils::sha256("ab");
-    std::string cc = utils::sha256(std::string("c") + "c");
-    REQUIRE(three == utils::sha256(ab + cc));
-    std::string four = utils::calculateMerkleRoot({"a", "b", "c", "d"});
-    REQUIRE(four == utils::sha256(utils::sha256("ab") + utils::sha256("cd")));
+    REQUIRE(utils::calculateMerkleRoot({"a"}) ==
+            "022a6979e6dab7aa5ae4c3e5e45f7e977112a7e63593820dbec1ec738a24f93c");
+    REQUIRE(utils::calculateMerkleRoot({"a", "b"}) ==
+            "b137985ff484fb600db93107c77b0365c80d78f5b429ded0fd97361d077999eb");
+    REQUIRE(utils::calculateMerkleRoot({"a", "b", "c"}) ==
+            "36642e73c2540ab121e3a6bf9545b0a24982cd830eb13d3cd19de3ce6c021ec1");
+    REQUIRE(utils::calculateMerkleRoot({"a", "b", "c", "d"}) ==
+            "33376a3bd63e9993708a84ddfe6c28ae58b83505dd1fed711bd924ec5a6239f0");
 }
 
 TEST_CASE("checkProofOfWork boundary at each difficulty", "[unit][utils]") {
@@ -131,4 +135,37 @@ TEST_CASE("parseInt64 rejects junk and out-of-range values", "[unit][utils]") {
     REQUIRE_FALSE(utils::parseInt64("").has_value());
     REQUIRE_FALSE(utils::parseInt64("12x").has_value());
     REQUIRE_FALSE(utils::parseInt64("9223372036854775808").has_value());
+}
+
+TEST_CASE("merkle root distinguishes a repeated last transaction",
+          "[unit][utils]") {
+    // CVE-2012-2459's shape: duplicating the unpaired node made an n-item
+    // list and the same list with its last item repeated hash identically.
+    const std::string a = utils::sha256("tx-a");
+    const std::string b = utils::sha256("tx-b");
+    const std::string c = utils::sha256("tx-c");
+
+    REQUIRE(utils::calculateMerkleRoot({a, b, c}) !=
+            utils::calculateMerkleRoot({a, b, c, c}));
+}
+
+TEST_CASE("merkle root of one transaction is not that transaction",
+          "[unit][utils]") {
+    // Leaves and internal nodes went through the same function with no domain
+    // separation, so a one-item root was the leaf itself and a transaction
+    // hash was indistinguishable from an interior node.
+    const std::string only = utils::sha256("tx-only");
+
+    REQUIRE(utils::calculateMerkleRoot({only}) != only);
+    REQUIRE(utils::calculateMerkleRoot({only}).size() == 64);
+}
+
+TEST_CASE("merkle root is order-sensitive and stable", "[unit][utils]") {
+    const std::string a = utils::sha256("tx-a");
+    const std::string b = utils::sha256("tx-b");
+
+    REQUIRE(utils::calculateMerkleRoot({a, b}) ==
+            utils::calculateMerkleRoot({a, b}));
+    REQUIRE(utils::calculateMerkleRoot({a, b}) !=
+            utils::calculateMerkleRoot({b, a}));
 }

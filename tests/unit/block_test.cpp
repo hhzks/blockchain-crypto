@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include "money.h"
 #include "Block.h"
 #include "Transaction.h"
 #include "utils.h"
@@ -16,16 +17,19 @@ TEST_CASE("addTransaction updates merkle root", "[unit][block]") {
     Block b(0, "0", 2);
     std::string root_empty = b.getMerkleRoot();
 
-    auto tx = std::make_shared<Transaction>("system", "alice", 10.0);
+    auto tx = std::make_shared<Transaction>("system", "alice", money::coins(10));
     b.addTransaction(tx);
     REQUIRE(b.getMerkleRoot() != root_empty);
-    REQUIRE(b.getMerkleRoot() == tx->calculateHash());
+    // A one-transaction root is a hashed leaf, not the leaf itself: leaves and
+    // internal nodes are domain-separated (#25).
+    REQUIRE(b.getMerkleRoot() != tx->calculateHash());
+    REQUIRE(b.getMerkleRoot().size() == 64);
 }
 
 TEST_CASE("mineBlock at difficulty 2 produces PoW-satisfying hash",
           "[unit][block]") {
     Block b(0, "0", 2);
-    auto tx = std::make_shared<Transaction>("system", "miner", 50.0);
+    auto tx = std::make_shared<Transaction>("system", "miner", money::coins(50));
     b.addTransaction(tx);
     b.mineBlock();
     REQUIRE(utils::checkProofOfWork(b.getHash(), 2));
@@ -35,7 +39,7 @@ TEST_CASE("mineBlock at difficulty 2 produces PoW-satisfying hash",
 TEST_CASE("isValid catches merkle-root tampering via tx mutation",
           "[unit][block]") {
     Block b(0, "0", 2);
-    b.addTransaction(std::make_shared<Transaction>("system", "alice", 10.0));
+    b.addTransaction(std::make_shared<Transaction>("system", "alice", money::coins(10)));
     b.mineBlock();
     REQUIRE(b.isValid());
 }
@@ -43,7 +47,7 @@ TEST_CASE("isValid catches merkle-root tampering via tx mutation",
 TEST_CASE("restore constructor + setMinedState reproduce a mined block",
           "[unit][block]") {
     Block b(3, "prev", 2);
-    b.addTransaction(std::make_shared<Transaction>("system", "m", 50.0));
+    b.addTransaction(std::make_shared<Transaction>("system", "m", money::coins(50)));
     b.mineBlock();
 
     Block restored(3, "prev", 2, b.getTimestamp());
@@ -61,7 +65,7 @@ TEST_CASE("restore constructor + setMinedState reproduce a mined block",
 
 TEST_CASE("isMined agrees with checkProofOfWork", "[unit][block]") {
     Block b(0, "0", 0);
-    auto tx = std::make_shared<Transaction>("system", "alice", 1.0);
+    auto tx = std::make_shared<Transaction>("system", "alice", money::coins(1));
     b.addTransaction(tx);
     b.mineBlock();
     REQUIRE(b.isMined(0));
@@ -70,10 +74,10 @@ TEST_CASE("isMined agrees with checkProofOfWork", "[unit][block]") {
 TEST_CASE("addTransaction reports whether the transaction was accepted",
           "[unit][block]") {
     Block b(0, "0", 2);
-    REQUIRE(b.addTransaction(std::make_shared<Transaction>("system", "alice", 10.0)));
+    REQUIRE(b.addTransaction(std::make_shared<Transaction>("system", "alice", money::coins(10))));
 
     // Empty sender: rejected by Transaction::isValid.
-    REQUIRE_FALSE(b.addTransaction(std::make_shared<Transaction>("", "alice", 10.0)));
+    REQUIRE_FALSE(b.addTransaction(std::make_shared<Transaction>("", "alice", money::coins(10))));
     REQUIRE_FALSE(b.addTransaction(nullptr));
     REQUIRE(b.getTransactions().size() == 1);
 }
@@ -84,8 +88,8 @@ TEST_CASE("setTransactions restores a transaction list verbatim",
     // transaction it was sent, invalid ones included, so that validation
     // reports the real defect instead of a merkle mismatch caused by the
     // reconstruction itself.
-    auto good = std::make_shared<Transaction>("system", "alice", 10.0);
-    auto bad = std::make_shared<Transaction>("bob", "carol", 5.0);  // unsigned
+    auto good = std::make_shared<Transaction>("system", "alice", money::coins(10));
+    auto bad = std::make_shared<Transaction>("bob", "carol", money::coins(5));  // unsigned
 
     Block b(0, "0", 2);
     b.setTransactions({good, bad});

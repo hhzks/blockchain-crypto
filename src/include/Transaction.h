@@ -1,29 +1,44 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <ctime>
 #include "ECCrypto.h"
+#include "money.h"
 
 class Transaction {
 private:
     std::string sender;
     std::string receiver;
-    double amount;
+    money::Amount amount;
     long long timestamp;
+    // Distinguishes otherwise identical payments. Sender, receiver, amount and
+    // a one-second timestamp used to be the whole identity, so a repeated
+    // payment in the same second was the same transaction.
+    std::uint64_t nonce;
     std::string signature;
     std::string sender_pubkey;
 
 public:
-    Transaction(const std::string& from, const std::string& to, double value);
+    Transaction(const std::string& from, const std::string& to, money::Amount value);
     // Restore constructor for deserialization: preserves the original
     // timestamp and signature so hashes and signature checks still match.
+    Transaction(const std::string& from, const std::string& to, money::Amount value,
+                long long tx_timestamp, const std::string& tx_signature,
+                std::uint64_t tx_nonce);
+
+    // Deleted, not overloaded: an implicit double->Amount conversion would
+    // read 50.0 as 50 units (0.0000005 coin) instead of 50 coins, silently.
+    Transaction(const std::string& from, const std::string& to, double value) = delete;
     Transaction(const std::string& from, const std::string& to, double value,
-                long long tx_timestamp, const std::string& tx_signature);
+                long long tx_timestamp, const std::string& tx_signature,
+                std::uint64_t tx_nonce) = delete;
 
     std::string getSender() const { return sender; }
     std::string getReceiver() const { return receiver; }
-    double getAmount() const { return amount; }
+    money::Amount getAmount() const { return amount; }
     long long getTimestamp() const { return timestamp; }
+    std::uint64_t getNonce() const { return nonce; }
     std::string getSignature() const { return signature; }
     std::string getSenderPublicKey() const { return sender_pubkey; }
 

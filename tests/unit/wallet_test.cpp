@@ -1,5 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
+#include <fstream>
+#include <iterator>
+#include "money.h"
 #include "Wallet.h"
+#include "keystore.h"
+#include "Blockchain.h"
 #include "Transaction.h"
 #include "ECCrypto.h"
 #include "fixtures.h"
@@ -36,7 +41,7 @@ TEST_CASE("signTransaction + verifyTransaction roundtrip", "[unit][wallet]") {
     REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
     std::string addr = w.getAllAddresses()[0];
 
-    Transaction t(addr, "receiver", 1.0);
+    Transaction t(addr, "receiver", money::coins(1));
     REQUIRE(w.signTransaction(t, addr));
     REQUIRE(w.verifyTransaction(t, addr));
 }
@@ -47,7 +52,7 @@ TEST_CASE("signTransaction rejects mismatched sender", "[unit][wallet]") {
     REQUIRE(w.importPrivateKey(
         "0000000000000000000000000000000000000000000000000000000000005678"));
     auto addrs = w.getAllAddresses();
-    Transaction t(addrs[1], "receiver", 1.0);
+    Transaction t(addrs[1], "receiver", money::coins(1));
     REQUIRE_FALSE(w.signTransaction(t, addrs[0]));
 }
 
@@ -104,8 +109,146 @@ TEST_CASE("a generated key signs a transaction that validates end to end",
     wallet::Wallet w;
     const std::string address = w.generateNewAddress();
 
-    Transaction tx(address, "receiver", 5.0);
+    Transaction tx(address, "receiver", money::coins(5));
     REQUIRE(tx.signTransaction(w.getPrivateKeyHex(address)));
     tx.setSenderPublicKey(w.getPublicKeyHex(address));
     REQUIRE(tx.isValid());
+}
+
+TEST_CASE("wallet::utils::isValidAddress accepts a derived address",
+          "[unit][wallet]") {
+    wallet::Wallet w;
+    const std::string address = w.generateNewAddress();
+
+    REQUIRE(wallet::utils::isValidAddress(address));
+}
+
+TEST_CASE("wallet::utils::isValidAddress rejects malformed addresses",
+          "[unit][wallet]") {
+    // deriveAddress returns the first 20 bytes of SHA-256 as lowercase hex.
+    REQUIRE_FALSE(wallet::utils::isValidAddress(""));
+    REQUIRE_FALSE(wallet::utils::isValidAddress(std::string(39, 'a')));
+    REQUIRE_FALSE(wallet::utils::isValidAddress(std::string(41, 'a')));
+    REQUIRE_FALSE(wallet::utils::isValidAddress(std::string(40, 'g')));
+    REQUIRE_FALSE(wallet::utils::isValidAddress(std::string(40, 'A')));
+    REQUIRE_FALSE(wallet::utils::isValidAddress("0x" + std::string(40, 'a')));
+}
+
+TEST_CASE("wallet::utils::createRandomWallet yields a usable default address",
+          "[unit][wallet]") {
+    auto w = wallet::utils::createRandomWallet();
+    REQUIRE(w != nullptr);
+
+    const std::string address = w->getDefaultAddress();
+    REQUIRE(wallet::utils::isValidAddress(address));
+    REQUIRE(w->hasAddress(address));
+    REQUIRE(w->getAllAddresses().size() == 1);
+
+    // Two wallets must not share a key.
+    auto other = wallet::utils::createRandomWallet();
+    REQUIRE(other->getDefaultAddress() != address);
+}
+
+TEST_CASE("saved keystores do not contain the private key in the clear",
+          "[unit][wallet]") {
+    TempDir tmp;
+    const std::string path = tmp.file("encrypted.dat");
+
+    wallet::Wallet w;
+    REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
+    REQUIRE(w.saveToFile(path, "a good password"));
+
+    std::ifstream in(path, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(in)),
+                               std::istreambuf_iterator<char>());
+
+    REQUIRE_FALSE(contents.empty());
+    REQUIRE(contents.find(test_vectors::fixture_priv_hex) == std::string::npos);
+    REQUIRE(contents.find(w.getAllAddresses()[0]) == std::string::npos);
+}
+
+TEST_CASE("a keystore round-trips under its own password", "[unit][wallet]") {
+    TempDir tmp;
+    const std::string path = tmp.file("roundtrip.dat");
+
+    std::string address;
+    {
+        wallet::Wallet w;
+        REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
+        address = w.getAllAddresses()[0];
+        REQUIRE(w.saveToFile(path, "pw"));
+    }
+
+    wallet::Wallet loaded;
+    REQUIRE(loaded.loadFromFile(path, "pw"));
+    REQUIRE(loaded.hasAddress(address));
+    REQUIRE(loaded.getPrivateKeyHex(address) == test_vectors::fixture_priv_hex);
+    REQUIRE(loaded.getDefaultAddress() == address);
+}
+
+TEST_CASE("loading with the wrong password fails and keeps the existing keys",
+          "[unit][wallet]") {
+    TempDir tmp;
+    const std::string path = tmp.file("wrongpw.dat");
+
+    {
+        wallet::Wallet w;
+        REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
+        REQUIRE(w.saveToFile(path, "right"));
+    }
+
+    wallet::Wallet holder;
+    const std::string kept = holder.generateNewAddress();
+    REQUIRE_FALSE(kept.empty());
+
+    REQUIRE_FALSE(holder.loadFromFile(path, "wrong"));
+    // A failed load must not throw away what the wallet already held.
+    REQUIRE(holder.hasAddress(kept));
+}
+
+TEST_CASE("loadFromFile reports failure when an entry cannot be imported",
+          "[unit][wallet]") {
+    TempDir tmp;
+    const std::string path = tmp.file("corrupt.dat");
+
+    wallet::Wallet w;
+    REQUIRE(w.importPrivateKey(test_vectors::fixture_priv_hex));
+    REQUIRE(w.saveToFile(path, "pw"));
+
+    // Re-encrypt a body whose key material is not importable. Previously every
+    // line could fail and loadFromFile still returned true.
+    const std::string broken_body =
+        "DEFAULT:abc\nabc:notavalidkey:notavalidkey\n";
+    std::ofstream out(path, std::ios::binary);
+    out << keystore::encrypt(broken_body, "pw");
+    out.close();
+
+    wallet::Wallet loaded;
+    REQUIRE_FALSE(loaded.loadFromFile(path, "pw"));
+}
+
+TEST_CASE("a wallet-signed transaction is accepted by the chain",
+          "[unit][wallet]") {
+    // The contract the CLI leans on once it signs from the wallet instead of
+    // a key derived from the sender's name: what the wallet signs must pass
+    // Transaction::isValid and reach the mempool.
+    test_support::MinedChainFixture f;
+
+    wallet::Wallet w;
+    const std::string address = w.generateNewAddress();
+    REQUIRE_FALSE(address.empty());
+    REQUIRE(w.getDefaultAddress() == address);
+
+    f.seedFunds(address, money::coins(100), "miner_1");
+
+    auto tx = std::make_shared<Transaction>(address, "receiver", money::coins(30));
+    REQUIRE(w.signTransaction(*tx, address));
+    REQUIRE(tx->isValid());
+
+    f.chain.addTransaction(tx);
+    REQUIRE(f.chain.getPendingTransactions().size() == 1);
+
+    f.chain.minePendingTransactions("miner_1");
+    REQUIRE(f.chain.getBalance(address) == money::coins(70));
+    REQUIRE(f.chain.getBalance("receiver") == money::coins(30));
 }

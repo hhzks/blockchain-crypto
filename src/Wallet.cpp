@@ -3,9 +3,11 @@
 #include "include/utils.h"
 #include "include/sha.h"
 #include "include/ECCrypto.h"
+#include "include/keystore.h"
 #include <format>
 #include <print>
 #include <fstream>
+#include <sstream>
 #include <random>
 #include <algorithm>
 
@@ -214,24 +216,35 @@ bool Wallet::verifyTransaction(const Transaction& transaction, const std::string
 
 bool Wallet::saveToFile(const std::string& filename, const std::string& password) const {
     try {
+        // Build the cleartext body first, then hand the whole thing to the
+        // keystore. Previously this wrote raw private keys in hex, one per
+        // line, and ignored the password entirely.
+        std::ostringstream body;
+        body << "DEFAULT:" << default_address << "\n";
+
+        for (const auto& pair : key_pairs) {
+            const std::string& address = pair.first;
+            const auto& kp = pair.second;
+
+            std::string priv_hex = ECCrypto::bytesToHex(kp->private_key.data(), ECCrypto::PRIVATE_KEY_SIZE);
+            std::string pub_hex = ECCrypto::bytesToHex(kp->public_key.data(), ECCrypto::PUBLIC_KEY_SIZE);
+
+            body << address << ":" << priv_hex << ":" << pub_hex << "\n";
+        }
+
+        std::string armored = keystore::encrypt(body.str(), password);
+        if (armored.empty()) {
+            std::println(stderr, "Failed to encrypt wallet keystore");
+            return false;
+        }
+
         std::ofstream file(filename, std::ios::binary);
         if (!file.is_open()) {
             std::println(stderr, "Failed to open file for writing: {}", filename);
             return false;
         }
-        
-        file << "DEFAULT:" << default_address << std::endl;
-        
-        for (const auto& pair : key_pairs) {
-            const std::string& address = pair.first;
-            const auto& kp = pair.second;
-            
-            std::string priv_hex = ECCrypto::bytesToHex(kp->private_key.data(), ECCrypto::PRIVATE_KEY_SIZE);
-            std::string pub_hex = ECCrypto::bytesToHex(kp->public_key.data(), ECCrypto::PUBLIC_KEY_SIZE);
-            
-            file << address << ":" << priv_hex << ":" << pub_hex << std::endl;
-        }
-        
+
+        file << armored;
         file.close();
         return true;
     }
@@ -243,42 +256,61 @@ bool Wallet::saveToFile(const std::string& filename, const std::string& password
 
 bool Wallet::loadFromFile(const std::string& filename, const std::string& password) {
     try {
-        std::ifstream file(filename);
+        std::ifstream file(filename, std::ios::binary);
         if (!file.is_open()) {
             std::println(stderr, "Failed to open file for reading: {}", filename);
             return false;
         }
-        
-        clear();
-        
+
+        const std::string armored((std::istreambuf_iterator<char>(file)),
+                                  std::istreambuf_iterator<char>());
+        file.close();
+
+        auto body = keystore::decrypt(armored, password);
+        if (!body) {
+            // Wrong password, tampering and a malformed file are one failure
+            // here; none of them should cost the caller the keys it holds.
+            std::println(stderr, "Could not decrypt wallet keystore: wrong password or corrupt file");
+            return false;
+        }
+
+        // Parse into a scratch wallet so a partial file cannot leave this one
+        // half-populated.
+        Wallet parsed;
+        std::istringstream in(*body);
         std::string line;
-        while (std::getline(file, line)) {
+        std::string parsed_default;
+
+        while (std::getline(in, line)) {
             if (line.empty()) continue;
-            
-            if (line.substr(0, 8) == "DEFAULT:") {
-                default_address = line.substr(8);
+
+            if (line.starts_with("DEFAULT:")) {
+                parsed_default = line.substr(8);
                 continue;
             }
-            
+
             size_t first_colon = line.find(':');
             size_t second_colon = line.find(':', first_colon + 1);
-            
+
             if (first_colon == std::string::npos || second_colon == std::string::npos) {
                 std::println(stderr, "Invalid line format in wallet file");
-                continue;
+                return false;
             }
-            
+
             std::string address = line.substr(0, first_colon);
             std::string priv_hex = line.substr(first_colon + 1, second_colon - first_colon - 1);
             std::string pub_hex = line.substr(second_colon + 1);
-            
-            if (!importKeyPair(priv_hex, pub_hex)) {
+
+            // A single bad entry fails the load: this used to continue past
+            // every failure and still report success.
+            if (!parsed.importKeyPair(priv_hex, pub_hex)) {
                 std::println(stderr, "Failed to import key pair for address: {}", address);
-                continue;
+                return false;
             }
         }
-        
-        file.close();
+
+        key_pairs = std::move(parsed.key_pairs);
+        default_address = parsed_default.empty() ? parsed.default_address : parsed_default;
         return true;
     }
     catch (const std::exception& e) {
@@ -305,5 +337,32 @@ std::string Wallet::toString() const {
 
     return result;
 }
+
+namespace utils {
+
+std::unique_ptr<Wallet> createRandomWallet() {
+    auto w = std::make_unique<Wallet>();
+    if (w->generateNewAddress().empty()) {
+        return nullptr;
+    }
+    return w;
+}
+
+bool isValidAddress(const std::string& address) {
+    // deriveAddress returns the first 20 bytes of SHA-256 as lowercase hex,
+    // so anything else -- wrong length, uppercase, an "0x" prefix -- is not an
+    // address this project produces.
+    // 20 bytes rendered as hex.
+    constexpr size_t address_length = 40;
+    if (address.size() != address_length) {
+        return false;
+    }
+
+    return std::all_of(address.begin(), address.end(), [](unsigned char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+    });
+}
+
+} // namespace utils
 
 } // namespace wallet

@@ -1,41 +1,44 @@
 #include <catch2/catch_test_macros.hpp>
 #include <limits>
+#include "money.h"
 #include "Transaction.h"
+#include "Blockchain.h"
+#include "P2PMessage.h"
 #include "ECCrypto.h"
 #include "bigint.h"
 #include "fixtures.h"
 
 TEST_CASE("Transaction constructor populates fields", "[unit][transaction]") {
-    Transaction t("alice", "bob", 10.0);
+    Transaction t("alice", "bob", money::coins(10));
     REQUIRE(t.getSender() == "alice");
     REQUIRE(t.getReceiver() == "bob");
-    REQUIRE(t.getAmount() == 10.0);
+    REQUIRE(t.getAmount() == money::coins(10));
     REQUIRE(t.getSignature().empty());
 }
 
 TEST_CASE("calculateHash is deterministic", "[unit][transaction]") {
-    Transaction t("alice", "bob", 5.0);
+    Transaction t("alice", "bob", money::coins(5));
     REQUIRE(t.calculateHash() == t.calculateHash());
 }
 
 TEST_CASE("calculateHash changes on any field change", "[unit][transaction]") {
-    Transaction a("alice", "bob", 5.0);
-    Transaction b("alice", "carol", 5.0);
-    Transaction c("alice", "bob", 6.0);
+    Transaction a("alice", "bob", money::coins(5));
+    Transaction b("alice", "carol", money::coins(5));
+    Transaction c("alice", "bob", money::coins(6));
     REQUIRE(a.calculateHash() != b.calculateHash());
     REQUIRE(a.calculateHash() != c.calculateHash());
 }
 
 TEST_CASE("sign with priv then verify with pub roundtrips", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction t(kf.address(), "receiver", 1.0);
+    Transaction t(kf.address(), "receiver", money::coins(1));
     REQUIRE(t.signTransaction(kf.privHex()));
     REQUIRE(t.verifySignature(kf.pubHex()));
 }
 
 TEST_CASE("verify with wrong key fails", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction t(kf.address(), "receiver", 1.0);
+    Transaction t(kf.address(), "receiver", money::coins(1));
     REQUIRE(t.signTransaction(kf.privHex()));
 
     auto other = ECCrypto::keyPairFromPrivateKey(BigInt(0x5678LL));
@@ -43,43 +46,43 @@ TEST_CASE("verify with wrong key fails", "[unit][transaction]") {
 }
 
 TEST_CASE("isValid rejects empty sender/receiver", "[unit][transaction]") {
-    Transaction t1("", "bob", 1.0);
-    Transaction t2("alice", "", 1.0);
+    Transaction t1("", "bob", money::coins(1));
+    Transaction t2("alice", "", money::coins(1));
     REQUIRE_FALSE(t1.isValid());
     REQUIRE_FALSE(t2.isValid());
 }
 
 TEST_CASE("isValid rejects non-positive amount", "[unit][transaction]") {
-    Transaction t1("alice", "bob", 0.0);
-    Transaction t2("alice", "bob", -5.0);
+    Transaction t1("alice", "bob", money::coins(0));
+    Transaction t2("alice", "bob", -money::coins(5));
     REQUIRE_FALSE(t1.isValid());
     REQUIRE_FALSE(t2.isValid());
 }
 
 TEST_CASE("isValid rejects self-send", "[unit][transaction]") {
-    Transaction t("alice", "alice", 1.0);
+    Transaction t("alice", "alice", money::coins(1));
     REQUIRE_FALSE(t.isValid());
 }
 
 TEST_CASE("isValid accepts system mining reward without signature", "[unit][transaction]") {
-    Transaction t("system", "miner", 50.0);
+    Transaction t("system", "miner", money::coins(50));
     REQUIRE(t.isValid());
 }
 
 TEST_CASE("isValid rejects unsigned non-system transaction", "[unit][transaction]") {
-    Transaction t("alice", "bob", 1.0);
+    Transaction t("alice", "bob", money::coins(1));
     REQUIRE_FALSE(t.isValid());
 }
 
 TEST_CASE("restore constructor preserves timestamp so signatures verify",
           "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction original(kf.address(), "receiver", 1.0);
+    Transaction original(kf.address(), "receiver", money::coins(1));
     REQUIRE(original.signTransaction(kf.privHex()));
 
     Transaction restored(original.getSender(), original.getReceiver(),
                          original.getAmount(), original.getTimestamp(),
-                         original.getSignature());
+                         original.getSignature(), original.getNonce());
     REQUIRE(restored.getTimestamp() == original.getTimestamp());
     REQUIRE(restored.getSignature() == original.getSignature());
     REQUIRE(restored.calculateHash() == original.calculateHash());
@@ -88,7 +91,7 @@ TEST_CASE("restore constructor preserves timestamp so signatures verify",
 
 TEST_CASE("signTransaction populates sender public key", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction t(kf.address(), "receiver", 1.0);
+    Transaction t(kf.address(), "receiver", money::coins(1));
     REQUIRE(t.getSenderPublicKey().empty());
     REQUIRE(t.signTransaction(kf.privHex()));
     REQUIRE(t.getSenderPublicKey() == kf.pubHex());
@@ -96,7 +99,7 @@ TEST_CASE("signTransaction populates sender public key", "[unit][transaction]") 
 
 TEST_CASE("setSignature stores signature for later retrieval", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction original(kf.address(), "receiver", 1.0);
+    Transaction original(kf.address(), "receiver", money::coins(1));
     original.signTransaction(kf.privHex());
     std::string sig = original.getSignature();
     REQUIRE_FALSE(sig.empty());
@@ -113,7 +116,7 @@ TEST_CASE("setSignature stores signature for later retrieval", "[unit][transacti
 
 TEST_CASE("isValid accepts a properly signed transaction", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction t(kf.address(), "receiver", 1.0);
+    Transaction t(kf.address(), "receiver", money::coins(1));
     REQUIRE(t.signTransaction(kf.privHex()));
     REQUIRE(t.isValid());
 }
@@ -121,7 +124,7 @@ TEST_CASE("isValid accepts a properly signed transaction", "[unit][transaction]"
 TEST_CASE("isValid rejects a public key that does not match the sender",
           "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction t(kf.address(), "receiver", 1.0);
+    Transaction t(kf.address(), "receiver", money::coins(1));
     REQUIRE(t.signTransaction(kf.privHex()));
     // Swap in a different valid key: deriveAddress(pubkey) no longer == sender.
     auto other = ECCrypto::keyPairFromPrivateKey(BigInt(0x5678LL));
@@ -131,7 +134,7 @@ TEST_CASE("isValid rejects a public key that does not match the sender",
 
 TEST_CASE("isValid rejects a malformed signature", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction t(kf.address(), "receiver", 1.0);
+    Transaction t(kf.address(), "receiver", money::coins(1));
     REQUIRE(t.signTransaction(kf.privHex()));
     t.setSignature("deadbeef");  // valid hex, wrong length
     REQUIRE_FALSE(t.isValid());
@@ -140,11 +143,11 @@ TEST_CASE("isValid rejects a malformed signature", "[unit][transaction]") {
 TEST_CASE("isValid rejects a signature that does not match the transaction data",
           "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction signed_tx(kf.address(), "receiver", 1.0);
+    Transaction signed_tx(kf.address(), "receiver", money::coins(1));
     REQUIRE(signed_tx.signTransaction(kf.privHex()));
 
     // Same sender/key (binding holds) but different data: ECDSA verify must fail.
-    Transaction tampered(kf.address(), "receiver", 999.0);
+    Transaction tampered(kf.address(), "receiver", money::coins(999));
     tampered.setSenderPublicKey(signed_tx.getSenderPublicKey());
     tampered.setSignature(signed_tx.getSignature());
     REQUIRE(tampered.getSenderPublicKey() == kf.pubHex());
@@ -154,7 +157,7 @@ TEST_CASE("isValid rejects a signature that does not match the transaction data"
 TEST_CASE("verifySignatureByAddress accepts true address and rejects wrong",
           "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction t(kf.address(), "receiver", 1.0);
+    Transaction t(kf.address(), "receiver", money::coins(1));
     REQUIRE(t.signTransaction(kf.privHex()));
     REQUIRE(t.verifySignatureByAddress(kf.address()));
     REQUIRE_FALSE(t.verifySignatureByAddress("not_the_address"));
@@ -166,35 +169,86 @@ TEST_CASE("verifySignatureByAddress requires a real signature, not just a matchi
     // unsigned transaction whose address matches the sender would wrongly pass.
     // Real verification must reject it.
     test_support::KeyPairFixture kf;
-    Transaction unsigned_tx(kf.address(), "receiver", 1.0);
+    Transaction unsigned_tx(kf.address(), "receiver", money::coins(1));
     REQUIRE_FALSE(unsigned_tx.verifySignatureByAddress(kf.address()));
 }
 
-// Issue #13: every comparison against NaN is false, so `amount <= 0` let NaN
-// through, and INFINITY is genuinely > 0. Both then poison balances forever,
-// because `balance < amount` is also false for NaN.
-TEST_CASE("isValid rejects a NaN amount", "[unit][transaction]") {
-    test_support::KeyPairFixture kf;
-    Transaction t(kf.address(), "receiver", std::numeric_limits<double>::quiet_NaN());
-    REQUIRE(t.signTransaction(kf.privHex()));
-    REQUIRE_FALSE(t.isValid());
-}
-
-TEST_CASE("isValid rejects infinite amounts", "[unit][transaction]") {
+// Issue #13 required rejecting NaN and infinity, which is now structural
+// rather than a check: amounts are an integer count of the smallest unit
+// (#26), so neither value is representable at all. What remains to police is
+// the range.
+TEST_CASE("isValid rejects a zero or negative amount", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
 
-    Transaction positive(kf.address(), "receiver", std::numeric_limits<double>::infinity());
-    REQUIRE(positive.signTransaction(kf.privHex()));
-    REQUIRE_FALSE(positive.isValid());
+    Transaction zero(kf.address(), "receiver", money::Amount{0});
+    REQUIRE(zero.signTransaction(kf.privHex()));
+    REQUIRE_FALSE(zero.isValid());
 
-    Transaction negative(kf.address(), "receiver", -std::numeric_limits<double>::infinity());
+    Transaction negative(kf.address(), "receiver", money::Amount{-1});
     REQUIRE(negative.signTransaction(kf.privHex()));
     REQUIRE_FALSE(negative.isValid());
 }
 
+TEST_CASE("isValid rejects an amount beyond the supply cap",
+          "[unit][transaction]") {
+    test_support::KeyPairFixture kf;
+
+    Transaction t(kf.address(), "receiver", money::MAX_MONEY + 1);
+    REQUIRE(t.signTransaction(kf.privHex()));
+    REQUIRE_FALSE(t.isValid());
+}
+
 TEST_CASE("isValid still accepts an ordinary positive amount", "[unit][transaction]") {
     test_support::KeyPairFixture kf;
-    Transaction t(kf.address(), "receiver", 1.5);
+    Transaction t(kf.address(), "receiver", (money::coins(1) + money::COIN / 2));
     REQUIRE(t.signTransaction(kf.privHex()));
     REQUIRE(t.isValid());
+}
+
+TEST_CASE("identical payments in the same second are distinct transactions",
+          "[unit][transaction]") {
+    // Sender, receiver, amount and a one-second timestamp were the whole
+    // identity of a transaction, so two legitimate identical payments made in
+    // the same second were the *same* transaction: transactionExists matched
+    // and the mempool silently dropped the second one.
+    Transaction first("alice", "bob", money::coins(5));
+    Transaction second("alice", "bob", money::coins(5));
+
+    // Constructing twice takes microseconds, but pin the shared second rather
+    // than assume it, so this tests the collision and not the clock.
+    for (int i = 0; i < 100 && first.getTimestamp() != second.getTimestamp(); i++) {
+        first = Transaction("alice", "bob", money::coins(5));
+        second = Transaction("alice", "bob", money::coins(5));
+    }
+    REQUIRE(first.getTimestamp() == second.getTimestamp());
+
+    REQUIRE(first.getNonce() != second.getNonce());
+    REQUIRE(first.calculateHash() != second.calculateHash());
+}
+
+TEST_CASE("a repeated identical payment reaches the mempool",
+          "[unit][transaction]") {
+    test_support::MinedChainFixture f;
+    test_support::KeyPairFixture alice;
+    f.seedFunds(alice.address(), money::coins(100), "miner_1");
+
+    f.chain.addTransaction(alice.signedTx("bob", money::coins(5)));
+    f.chain.addTransaction(alice.signedTx("bob", money::coins(5)));
+
+    REQUIRE(f.chain.getPendingTransactions().size() == 2);
+}
+
+TEST_CASE("the nonce is covered by the signature and survives the wire",
+          "[unit][transaction]") {
+    // The nonce is part of the signed payload, so a peer cannot alter it, and
+    // it has to round-trip or every restored signature would fail.
+    test_support::KeyPairFixture kf;
+    auto original = kf.signedTx("bob", money::coins(2));
+
+    auto restored = p2p::TransactionSerializer::deserialize(
+        p2p::TransactionSerializer::serialize(*original));
+
+    REQUIRE(restored->getNonce() == original->getNonce());
+    REQUIRE(restored->calculateHash() == original->calculateHash());
+    REQUIRE(restored->isValid());
 }

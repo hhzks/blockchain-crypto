@@ -16,6 +16,16 @@ private:
         ECCrypto::PrivateKey private_key;
         ECCrypto::PublicKey public_key;
         std::string address;
+
+        // Private keys should not outlive the wallet in freed heap memory.
+        // Written through a volatile pointer so the compiler cannot drop the
+        // stores as dead.
+        ~KeyPair() {
+            volatile uint8_t* p = private_key.data();
+            for (size_t i = 0; i < private_key.size(); i++) {
+                p[i] = 0;
+            }
+        }
     };
 
     std::unordered_map<std::string, std::unique_ptr<KeyPair>> key_pairs;
@@ -39,6 +49,9 @@ public:
     bool signTransaction(Transaction& transaction, const std::string& from_address) const;
     bool verifyTransaction(const Transaction& transaction, const std::string& address) const;
 
+    // The keystore is encrypted with `password` (see keystore.h for the
+    // construction and its limits). Loading with the wrong password fails and
+    // leaves the wallet's existing keys untouched.
     bool saveToFile(const std::string& filename, const std::string& password) const;
     bool loadFromFile(const std::string& filename, const std::string& password);
 
@@ -47,10 +60,12 @@ public:
 };
 
 namespace utils {
+    // A wallet holding one freshly generated key, set as the default address.
     std::unique_ptr<Wallet> createRandomWallet();
+
+    // True for the output shape of ECCrypto::deriveAddress: exactly 40
+    // lowercase hex characters, with no "0x" prefix.
     bool isValidAddress(const std::string& address);
-    std::string generateMnemonic();
-    std::pair<ECCrypto::PrivateKey, ECCrypto::PublicKey> recoverFromMnemonic(const std::string& mnemonic);
 }
 
 }

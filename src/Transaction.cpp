@@ -3,17 +3,45 @@
 #include "include/ECCrypto.h"
 #include <format>
 #include <print>
-#include <cmath>
+#include <atomic>
+#include <cstdint>
 
-Transaction::Transaction(const std::string& from, const std::string& to, double value)
-    : sender(from), receiver(to), amount(value), timestamp(utils::getCurrentTimestamp()) {
+namespace {
+
+// A salt, not a secret: it only has to make two otherwise identical payments
+// distinct. Drawn from the OS CSPRNG, with a per-process counter as a fallback
+// so that a machine without entropy still produces unique transactions rather
+// than throwing from a constructor.
+std::uint64_t freshNonce() {
+    std::uint64_t value = 0;
+
+    try {
+        ECCrypto::secureRandomBytes(reinterpret_cast<uint8_t*>(&value), sizeof value);
+        if (value != 0) {
+            return value;
+        }
+    } catch (const std::exception&) {
+        // fall through
+    }
+
+    static std::atomic<std::uint64_t> counter{0};
+    return (static_cast<std::uint64_t>(utils::getCurrentTimestamp()) << 20) ^
+           counter.fetch_add(1) ^ 1;
+}
+
+} // namespace
+
+Transaction::Transaction(const std::string& from, const std::string& to, money::Amount value)
+    : sender(from), receiver(to), amount(value), timestamp(utils::getCurrentTimestamp()),
+      nonce(freshNonce()) {
     signature = "";
 }
 
-Transaction::Transaction(const std::string& from, const std::string& to, double value,
-                         long long tx_timestamp, const std::string& tx_signature)
+Transaction::Transaction(const std::string& from, const std::string& to, money::Amount value,
+                         long long tx_timestamp, const std::string& tx_signature,
+                         std::uint64_t tx_nonce)
     : sender(from), receiver(to), amount(value), timestamp(tx_timestamp),
-      signature(tx_signature) {
+      nonce(tx_nonce), signature(tx_signature) {
 }
 
 std::string Transaction::calculateHash() const {
@@ -27,17 +55,25 @@ bool Transaction::signTransaction(const ECCrypto::PrivateKey& private_key) {
     }
     
     try {
+        // Derive the keypair first and sign with the public key it already
+        // computed: signing needs P.x for the challenge hash, and letting it
+        // recompute G*x costs a second full scalar multiplication.
+        BigInt priv = ECCrypto::bytes32ToBigInt(private_key.data());
+        auto kp = ECCrypto::keyPairFromPrivateKey(priv);
+        if (!kp) {
+            std::println(stderr, "Could not derive keypair for signing");
+            return false;
+        }
+
         std::string tx_data = getTransactionData();
-        ECCrypto::Signature sig = ECCrypto::signMessage(tx_data, private_key);
+        ECCrypto::Signature sig =
+            ECCrypto::signMessage(tx_data, priv, kp->public_key);
         signature = ECCrypto::signatureToHex(sig);
         // Attach the sender's public key so the transaction can be verified
         // downstream from the address alone. deriveAddress(pubkey) == sender is
         // enforced in isValid(). The key is NOT part of the signed data.
-        BigInt priv = ECCrypto::bytes32ToBigInt(private_key.data());
-        auto kp = ECCrypto::keyPairFromPrivateKey(priv);
-        if (kp) {
-            sender_pubkey = kp->public_key_hex;
-        }
+        sender_pubkey = kp->public_key_hex;
+
         std::println(stderr, "Transaction signed successfully");
         return true;
         
@@ -110,7 +146,7 @@ bool Transaction::verifySignatureByAddress(const std::string& address) const {
 std::string Transaction::toString() const {
     return std::format(
         "Transaction {{\n  From: {}\n  To: {}\n  Amount: {}\n  Timestamp: {}\n  Hash: {}\n  Signature: {}\n}}\n",
-        sender, receiver, amount, timestamp, calculateHash(),
+        sender, receiver, money::format(amount), timestamp, calculateHash(),
         signature.empty() ? "Not signed" : signature.substr(0, 16) + "..."
     );
 }
@@ -122,11 +158,10 @@ bool Transaction::isValid() const {
         return false;
     }
     
-    // NaN fails every comparison, so `amount <= 0` alone let it through, and
-    // INFINITY passes that check on its own merits. Either one permanently
-    // poisons a balance, since `balance < amount` is false for NaN too.
-    if (!std::isfinite(amount) || amount <= 0) {
-        std::println(stderr, "Invalid transaction: Amount must be positive and finite");
+    // Amount is an integer count of the smallest unit, so NaN and infinity
+    // are no longer representable; what is left to check is the range.
+    if (!money::isValidAmount(amount)) {
+        std::println(stderr, "Invalid transaction: Amount must be positive and within the supply cap");
         return false;
     }
     
@@ -167,7 +202,10 @@ bool Transaction::isValid() const {
 }
 
 std::string Transaction::getTransactionData() const {
-    return std::format("{}:{}:{:.8f}:{}", sender, receiver, amount, timestamp);
+    // Integer units, so the pre-image is exact rather than a rounded decimal
+    // rendering that had to survive a text round-trip to compare equal. The
+    // nonce is in here, so it is covered by the signature as well as the hash.
+    return std::format("{}:{}:{}:{}:{}", sender, receiver, amount, timestamp, nonce);
 }
 
 std::string Transaction::derivedAddressFromKey() const {

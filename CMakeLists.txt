@@ -20,7 +20,9 @@ set(CORE_SOURCES
     src/Block.cpp
     src/Transaction.cpp
     src/utils.cpp
+    src/money.cpp
     src/sha.cpp
+    src/keystore.cpp
     src/ECCrypto.cpp
     src/Wallet.cpp
     src/P2PNode.cpp
@@ -31,7 +33,9 @@ set(CORE_HEADERS
     src/include/Block.h
     src/include/Transaction.h
     src/include/utils.h
+    src/include/money.h
     src/include/sha.h
+    src/include/keystore.h
     src/include/ECCrypto.h
     src/include/Wallet.h
     src/include/bigint.h

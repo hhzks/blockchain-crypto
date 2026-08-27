@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
+#include "money.h"
 #include "fixtures.h"
 #include "Transaction.h"
 #include "P2PNode.h"
@@ -24,13 +25,13 @@ TEST_CASE("Broadcast transaction delivered to peer", "[integration][p2p][!mayfai
     REQUIRE(f.start());
     REQUIRE(f.waitFor([&]{ return f.handshakes_done >= 2; }, 3s));
 
-    auto tx = std::make_shared<Transaction>("system", "bob", 42.0);
+    auto tx = std::make_shared<Transaction>("system", "bob", money::coins(42));
     f.node_a->broadcastTransaction(tx);
 
     bool got = f.waitFor([&]{ return f.last_tx_on_b != nullptr; }, 3s);
     REQUIRE(got);
     REQUIRE(f.last_tx_on_b->getReceiver() == "bob");
-    REQUIRE(f.last_tx_on_b->getAmount() == 42.0);
+    REQUIRE(f.last_tx_on_b->getAmount() == money::coins(42));
 }
 
 TEST_CASE("Nodes stop cleanly without hanging", "[integration][p2p]") {
@@ -110,7 +111,7 @@ bool sendHandshakeAdvertising(SocketType sock, const std::string& node_id,
                              uint16_t listen_port, int64_t height) {
     auto frame = p2p::Message(p2p::MessageType::HANDSHAKE,
                               node_id + "|" + std::to_string(listen_port) + "|" +
-                              std::to_string(height) + "|1.0.0",
+                              std::to_string(height) + "|money::coins(1).0",
                               node_id).serialize();
     return sendAll(sock, frame.data(), frame.size());
 }
@@ -123,7 +124,7 @@ bool sendHandshake(SocketType sock, const std::string& node_id, int64_t height) 
 
 TEST_CASE("A malformed peer message drops the peer, not the node",
           "[integration][p2p]") {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     p2p::P2PConfig cfg;
     cfg.listen_port = 0;
     cfg.enable_logging = false;
@@ -137,7 +138,7 @@ TEST_CASE("A malformed peer message drops the peer, not the node",
     // Unguarded std::stoll/std::stoi throw out of the receiver thread, and an
     // escaping exception there is std::terminate for the whole process.
     REQUIRE(sendRawMessage(port, p2p::Message(p2p::MessageType::HANDSHAKE,
-                                              "attacker|8333|abc|1.0.0", "attacker")));
+                                              "attacker|8333|abc|money::coins(1).0", "attacker")));
     REQUIRE(sendRawMessage(port, p2p::Message(p2p::MessageType::GET_BLOCKS,
                                               "zero|one", "attacker")));
     REQUIRE(sendRawMessage(port, p2p::Message(p2p::MessageType::BLOCKS,
@@ -148,7 +149,7 @@ TEST_CASE("A malformed peer message drops the peer, not the node",
                                               "127.0.0.1:port:nid:when", "attacker")));
 
     // The node must still be alive and still serve a well-formed peer.
-    Blockchain good_chain{2, 50.0};
+    Blockchain good_chain{2, money::coins(50)};
     p2p::P2PConfig good_cfg;
     good_cfg.listen_port = 0;
     good_cfg.enable_logging = false;
@@ -169,7 +170,7 @@ TEST_CASE("A malformed peer message drops the peer, not the node",
 
 TEST_CASE("A stalled peer does not block messages from other peers",
           "[integration][p2p]") {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     p2p::P2PConfig cfg;
     cfg.listen_port = 0;
     cfg.enable_logging = false;
@@ -219,7 +220,7 @@ TEST_CASE("A stalled peer does not block messages from other peers",
 
 TEST_CASE("stop() returns promptly instead of sleeping out an interval",
           "[integration][p2p]") {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     p2p::P2PConfig cfg;
     cfg.listen_port = 0;
     cfg.enable_logging = false;
@@ -238,7 +239,7 @@ TEST_CASE("stop() returns promptly instead of sleeping out an interval",
 
 TEST_CASE("an unanswered GET_BLOCKS does not wedge sync forever",
           "[integration][p2p]") {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     p2p::P2PConfig cfg;
     cfg.listen_port = 0;
     cfg.enable_logging = false;
@@ -263,7 +264,7 @@ TEST_CASE("an unanswered GET_BLOCKS does not wedge sync forever",
 
 TEST_CASE("a peer disconnecting mid-sync clears the sync flag",
           "[integration][p2p]") {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     p2p::P2PConfig cfg;
     cfg.listen_port = 0;
     cfg.enable_logging = false;
@@ -286,7 +287,7 @@ TEST_CASE("a peer disconnecting mid-sync clears the sync flag",
 }
 
 TEST_CASE("an ERROR reply cancels the in-flight sync", "[integration][p2p]") {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     p2p::P2PConfig cfg;
     cfg.listen_port = 0;
     cfg.enable_logging = false;
@@ -317,7 +318,7 @@ TEST_CASE("an ERROR reply cancels the in-flight sync", "[integration][p2p]") {
 
 TEST_CASE("a peer is reported by its advertised listen port",
           "[integration][p2p]") {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     p2p::P2PConfig cfg;
     cfg.listen_port = 0;
     cfg.enable_logging = false;
@@ -344,7 +345,7 @@ TEST_CASE("a peer is reported by its advertised listen port",
 
 TEST_CASE("a second connection claiming a connected peer's node id is dropped",
           "[integration][p2p]") {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     p2p::P2PConfig cfg;
     cfg.listen_port = 0;
     cfg.enable_logging = false;
@@ -373,7 +374,7 @@ TEST_CASE("a second connection claiming a connected peer's node id is dropped",
 }
 
 TEST_CASE("a handshake advertising port 0 is rejected", "[integration][p2p]") {
-    Blockchain chain{2, 50.0};
+    Blockchain chain{2, money::coins(50)};
     p2p::P2PConfig cfg;
     cfg.listen_port = 0;
     cfg.enable_logging = false;
