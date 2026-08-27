@@ -22,11 +22,28 @@ void Block::setMinedState(int mined_nonce, const std::string& mined_hash) {
     hash = mined_hash;
 }
 
-void Block::addTransaction(std::shared_ptr<Transaction> transaction) {
-    if (transaction && transaction->isValid()) {
-        transactions.push_back(transaction);
-        calculateMerkleRoot(); // Recalculate merkle root after adding transaction
+bool Block::addTransaction(std::shared_ptr<Transaction> transaction) {
+    if (!transaction) {
+        std::cout << "Block " << index << ": ignored null transaction" << std::endl;
+        return false;
     }
+
+    if (!transaction->isValid()) {
+        std::cout << "Block " << index << ": rejected invalid transaction "
+                  << transaction->getSender() << " -> "
+                  << transaction->getReceiver() << std::endl;
+        return false;
+    }
+
+    transactions.push_back(transaction);
+    calculateMerkleRoot(); // Recalculate merkle root after adding transaction
+    return true;
+}
+
+void Block::setTransactions(std::vector<std::shared_ptr<Transaction>> txs) {
+    std::erase(txs, nullptr);
+    transactions = std::move(txs);
+    calculateMerkleRoot();
 }
 
 std::string Block::calculateHash() const {

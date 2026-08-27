@@ -220,3 +220,25 @@ TEST_CASE("Message::deserialize rejects a high-bit payload length", "[unit][p2p]
     frame[5] = 0xFF; frame[6] = 0xFF; frame[7] = 0xFF; frame[8] = 0xFF;
     REQUIRE_THROWS_AS(Message::deserialize(frame), std::runtime_error);
 }
+
+TEST_CASE("BlockSerializer::deserialize keeps a block's invalid transactions",
+          "[unit][p2p]") {
+    test_support::KeyPairFixture kf;
+    Block b(1, "prevhash", 2);
+    b.addTransaction(kf.signedTx("bob", 5.0));
+    b.addTransaction(std::make_shared<Transaction>("system", "miner", 50.0));
+    b.mineBlock();
+
+    // Corrupt the signed transaction's signature on the wire: the peer sent
+    // two transactions, so two must come back, and the block must be reported
+    // invalid rather than silently reshaped into a one-transaction block.
+    std::string wire = BlockSerializer::serialize(b);
+    const std::string& sig = b.getTransactions()[0]->getSignature();
+    auto pos = wire.find(sig);
+    REQUIRE(pos != std::string::npos);
+    wire.replace(pos, 1, wire[pos] == 'a' ? "b" : "a");
+
+    auto restored = BlockSerializer::deserialize(wire);
+    REQUIRE(restored->getTransactions().size() == 2);
+    REQUIRE_FALSE(restored->isValid());
+}

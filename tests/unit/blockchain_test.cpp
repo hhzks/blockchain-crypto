@@ -217,3 +217,18 @@ TEST_CASE("addBlock rejects a block with an inflated system reward amount",
     REQUIRE_FALSE(f.chain.addBlock(block));
     REQUIRE(f.chain.getChainSize() == 1);
 }
+
+TEST_CASE("minePendingTransactions refuses to mine an unrewarded block",
+          "[unit][blockchain]") {
+    // "system" -> "system" fails Transaction::isValid (sender == receiver), so
+    // the reward transaction is rejected. Mining must abort rather than commit
+    // a block that silently carries no reward.
+    Blockchain bc(2, 50.0);
+    bc.addTransaction(std::make_shared<Transaction>("system", "alice", 10.0));
+    size_t height_before = bc.getChainSize();
+
+    bc.minePendingTransactions("system");
+
+    REQUIRE(bc.getChainSize() == height_before);
+    REQUIRE(bc.getPendingTransactions().size() == 1);
+}

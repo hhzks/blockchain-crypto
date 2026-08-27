@@ -70,11 +70,18 @@ void Blockchain::minePendingTransactions(const std::string& reward_address) {
     );
     
     for (auto& tx : pending_transactions) {
+        // A rejection is reported by Block::addTransaction; the transaction is
+        // left out of the block and dropped with the rest of the pool below.
         new_block->addTransaction(tx);
     }
     
     auto reward_tx = std::make_shared<Transaction>("system", reward_address, mining_reward);
-    new_block->addTransaction(reward_tx);
+    if (!new_block->addTransaction(reward_tx)) {
+        std::cout << "Mining aborted: invalid mining reward transaction of "
+                  << mining_reward << " to '" << reward_address
+                  << "'. Pending transactions kept." << std::endl;
+        return;
+    }
     
     new_block->mineBlock();
     

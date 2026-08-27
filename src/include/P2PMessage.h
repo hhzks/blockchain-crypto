@@ -346,6 +346,9 @@ public:
 
         auto block = std::make_shared<Block>(index, prev_hash, difficulty, timestamp);
 
+        std::vector<std::shared_ptr<Transaction>> txs;
+        txs.reserve(tx_count);
+
         for (size_t i = 0; i < tx_count; ++i) {
             std::string tx_data;
             std::getline(iss, tx_data, '|');
@@ -365,9 +368,12 @@ public:
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
                                                     tx_timestamp, sig);
             tx->setSenderPublicKey(pubkey);
-            block->addTransaction(tx);
+            txs.push_back(tx);
         }
 
+        // Rebuild the peer's block exactly as sent; Block::isValid() decides
+        // whether it is acceptable.
+        block->setTransactions(std::move(txs));
         block->setMinedState(nonce, hash);
         return block;
     }
