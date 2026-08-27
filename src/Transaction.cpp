@@ -3,17 +3,45 @@
 #include "include/ECCrypto.h"
 #include <format>
 #include <print>
-#include <cmath>
+#include <atomic>
+#include <cstdint>
+
+namespace {
+
+// A salt, not a secret: it only has to make two otherwise identical payments
+// distinct. Drawn from the OS CSPRNG, with a per-process counter as a fallback
+// so that a machine without entropy still produces unique transactions rather
+// than throwing from a constructor.
+std::uint64_t freshNonce() {
+    std::uint64_t value = 0;
+
+    try {
+        ECCrypto::secureRandomBytes(reinterpret_cast<uint8_t*>(&value), sizeof value);
+        if (value != 0) {
+            return value;
+        }
+    } catch (const std::exception&) {
+        // fall through
+    }
+
+    static std::atomic<std::uint64_t> counter{0};
+    return (static_cast<std::uint64_t>(utils::getCurrentTimestamp()) << 20) ^
+           counter.fetch_add(1) ^ 1;
+}
+
+} // namespace
 
 Transaction::Transaction(const std::string& from, const std::string& to, money::Amount value)
-    : sender(from), receiver(to), amount(value), timestamp(utils::getCurrentTimestamp()) {
+    : sender(from), receiver(to), amount(value), timestamp(utils::getCurrentTimestamp()),
+      nonce(freshNonce()) {
     signature = "";
 }
 
 Transaction::Transaction(const std::string& from, const std::string& to, money::Amount value,
-                         long long tx_timestamp, const std::string& tx_signature)
+                         long long tx_timestamp, const std::string& tx_signature,
+                         std::uint64_t tx_nonce)
     : sender(from), receiver(to), amount(value), timestamp(tx_timestamp),
-      signature(tx_signature) {
+      nonce(tx_nonce), signature(tx_signature) {
 }
 
 std::string Transaction::calculateHash() const {
@@ -175,8 +203,9 @@ bool Transaction::isValid() const {
 
 std::string Transaction::getTransactionData() const {
     // Integer units, so the pre-image is exact rather than a rounded decimal
-    // rendering that had to survive a text round-trip to compare equal.
-    return std::format("{}:{}:{}:{}", sender, receiver, amount, timestamp);
+    // rendering that had to survive a text round-trip to compare equal. The
+    // nonce is in here, so it is covered by the signature as well as the hash.
+    return std::format("{}:{}:{}:{}:{}", sender, receiver, amount, timestamp, nonce);
 }
 
 std::string Transaction::derivedAddressFromKey() const {

@@ -332,7 +332,8 @@ public:
                 << "," << tx->getAmount()
                 << "," << tx->getTimestamp()
                 << "," << tx->getSignature()
-                << "," << tx->getSenderPublicKey();
+                << "," << tx->getSenderPublicKey()
+                << "," << tx->getNonce();
         }
 
         return oss.str();
@@ -370,6 +371,7 @@ public:
             std::string sender, receiver, sig, pubkey;
             money::Amount amount;
             long long tx_timestamp;
+            std::uint64_t tx_nonce;
 
             std::getline(tx_stream, sender, ',');
             std::getline(tx_stream, receiver, ',');
@@ -377,9 +379,10 @@ public:
             std::getline(tx_stream, token, ','); tx_timestamp = std::stoll(token);
             std::getline(tx_stream, sig, ',');
             std::getline(tx_stream, pubkey, ',');
+            std::getline(tx_stream, token, ','); tx_nonce = std::stoull(token);
 
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
-                                                    tx_timestamp, sig);
+                                                    tx_timestamp, sig, tx_nonce);
             tx->setSenderPublicKey(pubkey);
             txs.push_back(tx);
         }
@@ -401,7 +404,8 @@ public:
             << tx.getAmount() << "|"
             << tx.getTimestamp() << "|"
             << tx.getSignature() << "|"
-            << tx.getSenderPublicKey();
+            << tx.getSenderPublicKey() << "|"
+            << tx.getNonce();
         return oss.str();
     }
 
@@ -410,6 +414,7 @@ public:
         std::string sender, receiver, sig, pubkey, token;
         money::Amount amount;
         long long timestamp;
+        std::uint64_t nonce;
 
         std::getline(iss, sender, '|');
         std::getline(iss, receiver, '|');
@@ -417,9 +422,10 @@ public:
         std::getline(iss, token, '|'); timestamp = std::stoll(token);
         std::getline(iss, sig, '|');
         std::getline(iss, pubkey, '|');
+        std::getline(iss, token, '|'); nonce = std::stoull(token);
 
         auto tx = std::make_shared<Transaction>(sender, receiver, amount,
-                                                timestamp, sig);
+                                                timestamp, sig, nonce);
         tx->setSenderPublicKey(pubkey);
         return tx;
     }

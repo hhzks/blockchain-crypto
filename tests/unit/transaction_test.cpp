@@ -2,6 +2,8 @@
 #include <limits>
 #include "money.h"
 #include "Transaction.h"
+#include "Blockchain.h"
+#include "P2PMessage.h"
 #include "ECCrypto.h"
 #include "bigint.h"
 #include "fixtures.h"
@@ -80,7 +82,7 @@ TEST_CASE("restore constructor preserves timestamp so signatures verify",
 
     Transaction restored(original.getSender(), original.getReceiver(),
                          original.getAmount(), original.getTimestamp(),
-                         original.getSignature());
+                         original.getSignature(), original.getNonce());
     REQUIRE(restored.getTimestamp() == original.getTimestamp());
     REQUIRE(restored.getSignature() == original.getSignature());
     REQUIRE(restored.calculateHash() == original.calculateHash());
@@ -201,4 +203,52 @@ TEST_CASE("isValid still accepts an ordinary positive amount", "[unit][transacti
     Transaction t(kf.address(), "receiver", (money::coins(1) + money::COIN / 2));
     REQUIRE(t.signTransaction(kf.privHex()));
     REQUIRE(t.isValid());
+}
+
+TEST_CASE("identical payments in the same second are distinct transactions",
+          "[unit][transaction]") {
+    // Sender, receiver, amount and a one-second timestamp were the whole
+    // identity of a transaction, so two legitimate identical payments made in
+    // the same second were the *same* transaction: transactionExists matched
+    // and the mempool silently dropped the second one.
+    Transaction first("alice", "bob", money::coins(5));
+    Transaction second("alice", "bob", money::coins(5));
+
+    // Constructing twice takes microseconds, but pin the shared second rather
+    // than assume it, so this tests the collision and not the clock.
+    for (int i = 0; i < 100 && first.getTimestamp() != second.getTimestamp(); i++) {
+        first = Transaction("alice", "bob", money::coins(5));
+        second = Transaction("alice", "bob", money::coins(5));
+    }
+    REQUIRE(first.getTimestamp() == second.getTimestamp());
+
+    REQUIRE(first.getNonce() != second.getNonce());
+    REQUIRE(first.calculateHash() != second.calculateHash());
+}
+
+TEST_CASE("a repeated identical payment reaches the mempool",
+          "[unit][transaction]") {
+    test_support::MinedChainFixture f;
+    test_support::KeyPairFixture alice;
+    f.seedFunds(alice.address(), money::coins(100), "miner_1");
+
+    f.chain.addTransaction(alice.signedTx("bob", money::coins(5)));
+    f.chain.addTransaction(alice.signedTx("bob", money::coins(5)));
+
+    REQUIRE(f.chain.getPendingTransactions().size() == 2);
+}
+
+TEST_CASE("the nonce is covered by the signature and survives the wire",
+          "[unit][transaction]") {
+    // The nonce is part of the signed payload, so a peer cannot alter it, and
+    // it has to round-trip or every restored signature would fail.
+    test_support::KeyPairFixture kf;
+    auto original = kf.signedTx("bob", money::coins(2));
+
+    auto restored = p2p::TransactionSerializer::deserialize(
+        p2p::TransactionSerializer::serialize(*original));
+
+    REQUIRE(restored->getNonce() == original->getNonce());
+    REQUIRE(restored->calculateHash() == original->calculateHash());
+    REQUIRE(restored->isValid());
 }

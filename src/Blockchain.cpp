@@ -359,6 +359,7 @@ bool Blockchain::saveToFile(const std::string& filename) const {
             // operator>> on load and corrupt the parse.
             file << (tx->getSignature().empty() ? "-" : tx->getSignature()) << std::endl;
             file << (tx->getSenderPublicKey().empty() ? "-" : tx->getSenderPublicKey()) << std::endl;
+            file << tx->getNonce() << std::endl;
         }
     }
 
@@ -429,9 +430,10 @@ bool Blockchain::loadFromFile(const std::string& filename) {
             std::string sender, receiver, signature, pubkey;
             money::Amount amount = 0;
             long long tx_timestamp = 0;
+            std::uint64_t tx_nonce = 0;
 
             if (!(file >> sender >> receiver >> amount >> tx_timestamp
-                       >> signature >> pubkey)) {
+                       >> signature >> pubkey >> tx_nonce)) {
                 return fail(std::format("unreadable transaction {} in block {}", j, i));
             }
             if (signature == "-") {
@@ -442,7 +444,7 @@ bool Blockchain::loadFromFile(const std::string& filename) {
             }
 
             auto tx = std::make_shared<Transaction>(sender, receiver, amount,
-                                                    tx_timestamp, signature);
+                                                    tx_timestamp, signature, tx_nonce);
             tx->setSenderPublicKey(pubkey);
             txs.push_back(tx);
         }
